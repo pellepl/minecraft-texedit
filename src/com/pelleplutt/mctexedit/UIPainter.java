@@ -1,11 +1,23 @@
 package com.pelleplutt.mctexedit;
 
-import java.awt.*;
-import java.awt.event.*;
-import java.awt.geom.*;
-import java.awt.image.*;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.Point;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
+import java.awt.event.MouseMotionListener;
+import java.awt.event.MouseWheelEvent;
+import java.awt.event.MouseWheelListener;
+import java.awt.geom.AffineTransform;
+import java.awt.image.BufferedImage;
 
-import javax.swing.*;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+
+import com.pelleplutt.util.AppSystem;
+import com.pelleplutt.util.Log;
 
 public class UIPainter extends JPanel implements MouseListener, MouseMotionListener, MouseWheelListener {
   static final int DRAG_UNDEF = 0;
@@ -18,14 +30,20 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   Point dragAnchor;
   Point dragPrev;
   JScrollPane scrl;
+  Tools tools = new Tools();
+  final static Color colTrans1 = new Color(255,255,255);
+  final static Color colTrans2 = new Color(230,230,230);
+  final static BufferedImage iconImagePen = AppSystem.loadImage("fill.png");
+
   
   public UIPainter() {
     Graphics g = img.getGraphics();
-    g.setColor(Color.black);
-    g.fillRect(0, 0, img.getWidth(), img.getHeight());
+    //g.setColor(Color.black);
+    //g.fillRect(0, 0, img.getWidth(), img.getHeight());
     g.setColor(Color.red);
     g.drawLine(0, 0, img.getWidth(), img.getHeight());
     g.drawLine(img.getWidth(), 0, 0, img.getHeight());
+    g.drawImage(iconImagePen, 60, 60, this);
     g.dispose();
   }
   
@@ -35,6 +53,25 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
 
   public void paint(Graphics gg) {
     Graphics2D g = (Graphics2D) gg;
+    {
+      final int G = 16;
+      int vpx = scrl.getHorizontalScrollBar().getValue();
+      int vpy = scrl.getVerticalScrollBar().getValue();
+      int vpw = scrl.getViewport().getWidth();
+      int vph = scrl.getViewport().getHeight();
+      int ox = vpx - (vpx % (2*G));
+      int oy = vpy - (vpy % (2*G));
+      boolean tr = false;
+      for (int y = oy; y < vph + oy + 2*G; y += G) {
+        boolean tc = tr;
+        tr = !tr;
+        for (int x = ox; x < vpw + ox + 2*G; x += G) {
+          g.setColor(tc ? colTrans1 : colTrans2);
+          g.fillRect(x, y, G, G);
+          tc = !tc;
+        }
+      }
+    }
     AffineTransform prevTransform = g.getTransform();
     AffineTransform t = (AffineTransform)prevTransform.clone();
     t.scale(mag, mag);
@@ -145,5 +182,7 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
 
   public void mouseMoved(MouseEvent e) {
   }
-
+  
+  public class Tools extends JPanel {
+  }
 }

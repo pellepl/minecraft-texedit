@@ -6,6 +6,10 @@ import javax.swing.*;
 
 public class Bootstrap {
   public static void main(String[] args) {
+    try {
+      UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+    } catch (Throwable ignore) {}
+
     JFrame frame = new JFrame();
     Container cp = frame.getContentPane();
     UIPainter painter = new UIPainter();
