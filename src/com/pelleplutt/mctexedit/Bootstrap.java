@@ -19,12 +19,13 @@ public class Bootstrap {
     scrollPane.setWheelScrollingEnabled(false);
     cp.setLayout(new BorderLayout());
     cp.add(scrollPane, BorderLayout.CENTER);
+    cp.add(painter.getToolsPanel(), BorderLayout.WEST);
     
     scrollPane.addMouseListener(painter);
     scrollPane.addMouseWheelListener(painter);
     scrollPane.addMouseMotionListener(painter);
     frame.setLocation(100, 100);
-    frame.setSize(300, 300);
+    frame.setSize(700, 400);
     frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
     frame.setVisible(true);
   }
