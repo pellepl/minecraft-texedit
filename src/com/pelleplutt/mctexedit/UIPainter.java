@@ -1,11 +1,11 @@
 package com.pelleplutt.mctexedit;
 
-import java.util.List;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.*;
 import java.awt.image.*;
 import java.util.*;
+import java.util.List;
 
 import javax.swing.*;
 
@@ -30,6 +30,7 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   final static Image iconImageErase = AppSystem.loadImage("erase.png");
   final static Image iconImagePalette = AppSystem.loadImage("palette.png");
   final static Image iconImagePick = AppSystem.loadImage("colpick.png");
+  final static Image iconImageThickness = AppSystem.loadImage("thickness.png");
   final static Image iconImageUndo = AppSystem.loadImage("undo.png");
   final static Image iconImageRedo = AppSystem.loadImage("redo.png");
   
@@ -44,6 +45,7 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   BufferedImage img = new BufferedImage(500, 500, BufferedImage.TYPE_INT_ARGB);
   Color penColor;
   Color eraseColor = new Color(0,0,0,0);
+  Stroke stroke = new BasicStroke(1);
   int mag = 1;
   int toolState = USER_UNDEF;
   int dragState = USER_UNDEF;
@@ -80,7 +82,9 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     return new BufferedImage(cm, raster, isAlphaPremultiplied, null);
   }
   
-  public void registerScroller(JScrollPane scrl) {
+  JFrame owner;
+  public void register(JFrame owner, JScrollPane scrl) {
+    this.owner = owner;
     this.scrl = scrl;
   }
 
@@ -90,17 +94,25 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     int vpy = scrl.getVerticalScrollBar().getValue();
     int vpw = scrl.getViewport().getWidth();
     int vph = scrl.getViewport().getHeight();
+    int iw = img.getWidth() * mag;
+    int ih = img.getHeight() * mag;
+    g.setColor(Color.darkGray);
+    g.fillRect(vpx,vpy,vpw,vph);
     {
       final int G = 16;
       int ox = vpx - (vpx % (2*G));
       int oy = vpy - (vpy % (2*G));
       boolean tr = false;
-      for (int y = oy; y < vph + oy + 2*G; y += G) {
+      int w = Math.min(iw, vpw+ox+2*G);
+      int h = Math.min(ih, vph+oy+2*G);
+      for (int y = oy; y < h; y += G) {
         boolean tc = tr;
         tr = !tr;
-        for (int x = ox; x < vpw + ox + 2*G; x += G) {
+        int gh = y + G > ih ? ih-y : G;
+        for (int x = ox; x < w; x += G) {
+          int gw = x + G > iw ? iw-x : G;
           g.setColor(tc ? colTrans1 : colTrans2);
-          g.fillRect(x, y, G, G);
+          g.fillRect(x, y, gw, gh);
           tc = !tc;
         }
       }
@@ -115,11 +127,11 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
       int ox = vpx - (vpx % mag);
       int oy = vpy - (vpy % mag);
       g.setXORMode(colGrid);
-      for (int y = oy; y < vph + oy + mag; y += mag) {
-        g.drawLine(vpx,y,vpx+vpw,y);
+      for (int y = oy; y < ih; y += mag) {
+        g.drawLine(0,y,iw,y);
       }
-      for (int x = ox; x < vpw + ox + mag; x += mag) {
-        g.drawLine(x,vpy,x,vpy+vph);
+      for (int x = ox; x < iw; x += mag) {
+        g.drawLine(x,0,x,ih);
       }
       g.setPaintMode();
     }
@@ -270,6 +282,7 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     from.translate(ox, oy);
     to.translate(ox, oy);
     Graphics2D g = (Graphics2D)img.getGraphics();
+    g.setStroke(stroke);
     if (toolState == USER_PAINT_PEN) {
       g.setColor(penColor);
       g.drawLine((int)(from.x/mag), (int)(from.y/mag), (int)(to.x/mag), (int)(to.y/mag));
@@ -284,15 +297,15 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
       int y = (int)(to.y/mag);
       x = Math.max(0, Math.min(img.getWidth()-1, x));
       y = Math.max(0, Math.min(img.getHeight()-1, y));
-      int c = img.getRGB(x, y) & 0xffffff;
-      int nc = penColor.getRGB() & 0xffffff;
+      int c = img.getRGB(x, y);
+      int nc = penColor.getRGB() | 0xff000000;
       if (c == nc) return;
       List<Point> visits = new ArrayList<Point>();
       visits.add(new Point(x,y));
       while (!visits.isEmpty()) {
         Point p = visits.remove(visits.size()-1);
         if (p.x < 0 || p.y < 0 || p.x >= img.getWidth() || p.y >= img.getHeight()) continue;
-        int curC = img.getRGB(p.x, p.y) & 0xffffff;
+        int curC = img.getRGB(p.x, p.y);
         if (curC != c) continue;
         img.setRGB(p.x, p.y, nc | 0xff000000);
         visits.add(new Point(p.x-1,p.y));
@@ -335,6 +348,10 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     penColor = new Color(color);
   }
   
+  void setThickness(int thickness) {
+    stroke = new BasicStroke(thickness);
+  }
+  
   public class Tools extends JPanel {
     JButton buts[] = {
         new JButton(new AbstractAction("", new ImageIcon(iconImagePen)) {
@@ -361,9 +378,23 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
             updateMouseCursorToTool(toolState);
           }
         }),
+        new JButton(new AbstractAction("", new ImageIcon(iconImageThickness)) {
+          public void actionPerformed(ActionEvent e) {
+            String choices[] = {"1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16"};
+            MouseEvent me = new MouseEvent(Tools.this, 0, 0, 0,   28, 28*4,   0, true);
+            UIUtil.showPopupMenu(me, choices, new ActionListener() {
+              public void actionPerformed(ActionEvent ae) {
+                try {
+                  setThickness(Integer.parseInt(ae.getActionCommand()));
+                } catch (Throwable t) {}
+              }
+            });
+            
+          }
+        }),
         new JButton(new AbstractAction("", new ImageIcon(iconImagePalette)) {
           public void actionPerformed(ActionEvent e) {
-            UIColorChooser.choose(null, penColor, UIPainter.this);
+            UIColorChooser.choose(owner, penColor, UIPainter.this);
           }
         }),
         new JButton(new AbstractAction("", new ImageIcon(iconImageUndo)) {
@@ -378,10 +409,10 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
         }),
     };
     public void setUndoEnabled(boolean e) {
-      buts[5].setEnabled(e);
+      buts[6].setEnabled(e);
     }
     public void setRedoEnabled(boolean e) {
-      buts[6].setEnabled(e);
+      buts[7].setEnabled(e);
     }
     Tools() {
       setLayout(new BoxLayout(this,BoxLayout.Y_AXIS));
@@ -395,7 +426,7 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     
     public void setColor(int color) {
       color |= 0xff000000;
-      buts[4].setBorder(BorderFactory.createLineBorder(new Color(color), 4, true));
+      buts[5].setBorder(BorderFactory.createLineBorder(new Color(color), 4, true));
     }
     
     void decorateButton(JButton b) {
