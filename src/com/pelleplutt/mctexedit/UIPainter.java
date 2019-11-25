@@ -13,6 +13,7 @@ import javax.imageio.*;
 import javax.swing.*;
 
 import com.pelleplutt.util.*;
+import com.pelleplutt.mctexedit.Transformer.*;
 
 public class UIPainter extends JPanel implements MouseListener, MouseMotionListener, MouseWheelListener {
   static final int USER_UNDEF = 0;
@@ -59,6 +60,9 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   Tools tools = new Tools();
   Object user;
   int offsX, offsY;
+  
+  BufferedImage overlayImg = null;
+  BufferedImage overlayTmp = null;
   
   List<BufferedImage> history = new ArrayList<BufferedImage>();
   int historyCursor = 0;
@@ -149,6 +153,10 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
       }
       g.setPaintMode();
     }
+    
+    if (overlayImg != null) {
+      paintOverlay(g, mag, offsX, offsY);
+    }
   }
 
   public void setImage(Image newImg, int w, int h) {
@@ -160,27 +168,109 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     recalcSize();
   }
   
-  static int leastSideLog2(int w, int h) {
-    int min = Math.min(w, h);
+  static int leastErrSideLog2(int x) {
     int bit;
     for (bit = 16; bit > 1; bit--) {
-      if ((min & (1<<bit)) != 0) {
+      if ((x & (1<<bit)) != 0) {
         break;
       }
     }
-    return (1<<bit);
+    
+    int e1 = Math.abs(x - (1<<(bit+1)));
+    int e2 = Math.abs(x - (1<<(bit+0)));
+    
+    return e2 < e1 ? (1<<bit) : (1<<(bit+1));
   }
   
-  public void pasteImage(Image newImg, int w, int h) {
-    saveHistory();
-    int sz = leastSideLog2(w,h);
-    img = new BufferedImage(sz, sz, BufferedImage.TYPE_INT_ARGB);
+  public void pasteImageOrig(Image newImg, int w, int h) {
+    saveHistoryBeforeChange();
+    int nw = leastErrSideLog2(w);
+    int nh = leastErrSideLog2(h);
+    img = new BufferedImage(nw, nh, BufferedImage.TYPE_INT_ARGB);
     Graphics2D g = (Graphics2D)img.getGraphics();
-    g.scale((double)sz/(double)w, (double)sz/(double)h);
+    g.scale((double)nw/(double)w, (double)nh/(double)h);
     g.drawImage(newImg, 0, 0, null);
     g.dispose();
     recalcSize();
     fireModifiedEvent();
+  }
+
+  Coord p1 = new Coord();
+  Coord p2 = new Coord();
+  Coord p3 = new Coord();
+  Coord p4 = new Coord();
+  Coord psel = null;
+  
+  void paintOverlay(Graphics2D g, int mag, int ox, int oy) {
+    final int SZ = 16;
+    
+    AffineTransform prevTransform = g.getTransform();
+    AffineTransform t = (AffineTransform)prevTransform.clone();
+    t.translate(ox, oy);
+    t.scale(mag, mag);
+    g.setTransform(t);
+    g.drawImage(overlayTmp, 0,0, this);
+    g.setTransform(prevTransform);
+    
+    int p1x = (int)(p1.x*mag)+ox; int p1y = (int)(p1.y*mag)+oy;
+    int p2x = (int)(p2.x*mag)+ox; int p2y = (int)(p2.y*mag)+oy;
+    int p3x = (int)(p3.x*mag)+ox; int p3y = (int)(p3.y*mag)+oy;
+    int p4x = (int)(p4.x*mag)+ox; int p4y = (int)(p4.y*mag)+oy;
+    g.setColor(Color.white);
+    g.drawLine(p1x, p1y, p2x, p2y);
+    g.drawLine(p2x, p2y, p3x, p3y);
+    g.drawLine(p3x, p3y, p4x, p4y);
+    g.drawLine(p4x, p4y, p1x, p1y);
+    g.setColor(Color.blue);
+    g.drawRect(p1x-SZ/2, p1y-SZ/2, SZ, SZ);
+    g.setColor(Color.red);
+    g.drawRect(p2x-SZ/2, p2y-SZ/2, SZ, SZ);
+    g.setColor(Color.green);
+    g.drawRect(p3x-SZ/2, p3y-SZ/2, SZ, SZ);
+    g.setColor(Color.yellow);
+    g.drawRect(p4x-SZ/2, p4y-SZ/2, SZ, SZ);
+  }
+  
+  void recalcOverlay() {
+    Graphics2D g = (Graphics2D)overlayTmp.getGraphics();
+    g.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
+    g.fillRect(0,0,img.getWidth(), img.getHeight());
+    g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER));
+    
+    Transformer t = new Transformer();
+    t.setCoords(p1, p2, p3, p4);
+    Coord xy = new Coord();
+    Coord uv = new Coord();
+    for (int y = 0; y < overlayTmp.getHeight(); y++) {
+      for (int x = 0; x < overlayTmp.getWidth(); x++) {
+        xy.set(x,y);
+        t.calc(xy, uv);
+        int u = (int)(uv.x * overlayImg.getWidth());
+        int v = (int)(uv.y * overlayImg.getHeight());
+        if (u >= 0 && u < overlayImg.getWidth() && v >= 0 && v < overlayImg.getHeight()) {
+          overlayTmp.setRGB(x, y, overlayImg.getRGB(u, v));
+        }
+      }
+    }
+    
+    g.dispose();
+  }
+  
+  public void pasteImage(Image newImg, int w, int h) {
+    overlayImg = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+    Graphics2D g = (Graphics2D)overlayImg.getGraphics();
+    g.drawImage(newImg, 0, 0, null);
+    g.dispose();
+    overlayTmp = new BufferedImage(img.getWidth(), img.getHeight(), BufferedImage.TYPE_INT_ARGB);
+
+    p1.set(0,0);
+    p2.set(img.getWidth(), 0);
+    p3.set(img.getWidth(), img.getHeight());
+    p4.set(0, img.getHeight());
+    
+    recalcOverlay();
+    
+    repaint();
   }
   
   public BufferedImage getImage() {
@@ -271,12 +361,7 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
         history.add(copy(img));
       }
       historyCursor--;
-      Graphics2D g = (Graphics2D)img.getGraphics();
-      g.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
-      g.fillRect(0,0,img.getWidth(), img.getHeight());
-      g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER));
-      g.drawImage(history.get(historyCursor), 0,0, null);
-      g.dispose();
+      img = copy(history.get(historyCursor));
       fireModifiedEvent();
     }
     repaint();
@@ -286,12 +371,7 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   public void redo() {
     if (historyCursor < history.size()-1) {
       historyCursor++;
-      Graphics2D g = (Graphics2D)img.getGraphics();
-      g.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
-      g.fillRect(0,0,img.getWidth(), img.getHeight());
-      g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER));
-      g.drawImage(history.get(historyCursor), 0,0, null);
-      g.dispose();
+      img = copy(history.get(historyCursor));
       fireModifiedEvent();
     }
     repaint();
@@ -304,44 +384,101 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     if (event) fireHistoryEvent();
   }
   
-  void saveHistory() {
+  void saveHistoryBeforeChange() {
+    while (history.size() > historyCursor) {
+      history.remove(historyCursor);
+    }
     history.add(copy(img));
     historyCursor++;
     updateHistoryState(true);
   }
 
   int oldToolState; 
+  double mouseDistToPoint(Coord c, MouseEvent e) {
+    int cx = (int)(c.x*mag)+offsX; int cy = (int)(c.y*mag)+offsY;
+    double dx = e.getPoint().x - cx; 
+    double dy = e.getPoint().y - cy;
+    return Math.sqrt(dx*dx + dy*dy);
+  }
   public void mousePressed(MouseEvent e) {
     if (img == null) return;
-    oldToolState = toolState;
     dragAnchor = (Point)e.getPoint().clone();
     dragPrev = dragAnchor;
-    switch (e.getButton()) {
-    case MouseEvent.BUTTON3:
-      dragState = USER_MOVE;
-      setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
-      break;
-    case MouseEvent.BUTTON2:
-      dragState = USER_PAINT;
-      newToolState(USER_PICK);
-      execute((Point)e.getPoint().clone(), (Point)e.getPoint().clone());
-      break;
-    case MouseEvent.BUTTON1:
-      dragState = USER_PAINT;
-      if (toolState == USER_PAINT_PEN || toolState == USER_PAINT_ERASE || toolState == USER_PAINT_FILL) {
-        while (history.size() > historyCursor) {
-          history.remove(historyCursor);
+    if (overlayImg != null) {
+      if (mouseDistToPoint(p1, e) < 16) psel = p1; else
+      if (mouseDistToPoint(p2, e) < 16) psel = p2; else
+      if (mouseDistToPoint(p3, e) < 16) psel = p3; else
+      if (mouseDistToPoint(p4, e) < 16) psel = p4; else
+        psel = null;
+    } else {
+      oldToolState = toolState;
+      switch (e.getButton()) {
+      case MouseEvent.BUTTON3:
+        dragState = USER_MOVE;
+        setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+        break;
+      case MouseEvent.BUTTON2:
+        dragState = USER_PAINT;
+        newToolState(USER_PICK);
+        execute((Point)e.getPoint().clone(), (Point)e.getPoint().clone());
+        break;
+      case MouseEvent.BUTTON1:
+        dragState = USER_PAINT;
+        if (toolState == USER_PAINT_PEN || toolState == USER_PAINT_ERASE || toolState == USER_PAINT_FILL) {
+          saveHistoryBeforeChange();
         }
-        saveHistory();
+        execute((Point)e.getPoint().clone(), (Point)e.getPoint().clone());
       }
-      execute((Point)e.getPoint().clone(), (Point)e.getPoint().clone());
     }
+  }
+  
+  public void mouseDragged(MouseEvent e) {
+    if (overlayImg != null) {
+      int vpx = scrl.getHorizontalScrollBar().getValue();
+      int vpy = scrl.getVerticalScrollBar().getValue();
+      if (psel != null) {
+        psel.x = (float)(e.getPoint().x - offsX + vpx) /(float)mag;
+        psel.y = (float)(e.getPoint().y - offsY + vpy) /(float)mag;
+      } else {
+        float dx = (e.getPoint().x - dragPrev.x) / (float)mag;
+        float dy = (e.getPoint().y - dragPrev.y) / (float)mag;
+        p1.x += dx;
+        p1.y += dy;
+        p2.x += dx;
+        p2.y += dy;
+        p3.x += dx;
+        p3.y += dy;
+        p4.x += dx;
+        p4.y += dy;
+      }
+      repaint();
+    } else {
+      switch (dragState) {
+      case USER_MOVE: {
+        int dx = e.getPoint().x - dragPrev.x;
+        int dy = e.getPoint().y - dragPrev.y;
+        scrl.getHorizontalScrollBar().setValue(scrl.getHorizontalScrollBar().getValue() - dx);
+        scrl.getVerticalScrollBar().setValue(scrl.getVerticalScrollBar().getValue() - dy);
+        break;
+      }
+      case USER_PAINT: {
+        execute(dragPrev, e.getPoint());
+        break;
+      }
+      }
+    }
+    dragPrev = (Point)e.getPoint().clone();
   }
 
   public void mouseReleased(MouseEvent e) {
-    dragState = USER_UNDEF;
-    newToolState(oldToolState);
-    updateMouseCursorToTool(toolState);
+    if (overlayImg != null) {
+      recalcOverlay();
+      repaint();
+    } else {
+      dragState = USER_UNDEF;
+      newToolState(oldToolState);
+      updateMouseCursorToTool(toolState);
+    }
   }
   
   public void mouseWheelMoved(MouseWheelEvent e) {
@@ -399,23 +536,6 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     }
     g.dispose();
     repaint();
-  }
-
-  public void mouseDragged(MouseEvent e) {
-    switch (dragState) {
-    case USER_MOVE: {
-      int dx = e.getPoint().x - dragPrev.x;
-      int dy = e.getPoint().y - dragPrev.y;
-      scrl.getHorizontalScrollBar().setValue(scrl.getHorizontalScrollBar().getValue() - dx);
-      scrl.getVerticalScrollBar().setValue(scrl.getVerticalScrollBar().getValue() - dy);
-      break;
-    }
-    case USER_PAINT: {
-      execute(dragPrev, e.getPoint());
-      break;
-    }
-    }
-    dragPrev = (Point)e.getPoint().clone();
   }
 
   public void mouseMoved(MouseEvent e) {
@@ -597,7 +717,7 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   // http://www.java2s.com/Tutorial/Java/0240__Swing/DragandDropSupportforImages.htm
   class ImageSelection extends TransferHandler implements Transferable {
 
-    private final DataFlavor flavors[] = { DataFlavor.imageFlavor, DataFlavor.allHtmlFlavor };
+    private final DataFlavor flavors[] = { DataFlavor.allHtmlFlavor };
 
     public int getSourceActions(JComponent c) {
       return TransferHandler.COPY;
@@ -628,8 +748,8 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
         if (!ff.getMimeType().equals("application/octet-stream; class=java.io.InputStream"))
           continue;
         try {
-          Image img = ImageIO.read((InputStream) t.getTransferData(ff));
-          pasteImage(img, img.getWidth(null), img.getHeight(null));
+          Image nimg = ImageIO.read((InputStream) t.getTransferData(ff));
+          pasteImage(nimg, nimg.getWidth(null), nimg.getHeight(null));
           return true;
         } catch (UnsupportedFlavorException | IOException e) {
           e.printStackTrace();
