@@ -1,39 +1,76 @@
 package com.pelleplutt.mctexedit;
 
 import java.io.*;
+import java.net.*;
 import java.nio.file.*;
 import java.nio.file.FileSystem;
 import java.util.*;
 
+import com.pelleplutt.mctexedit.Asset.*;
+
 public class Assets {
   String path;
   FileSystem fs;
+  Asset root;
   
   public Assets(String path) {
     this.path = path;
   }
   
-  void traverse(Path p, int d) throws IOException {
-    if (Files.isDirectory(p)) {
-      for (int k = 0; k < d; k++) System.out.print(". ");
-      System.out.println(p.getFileName());
-      Iterator<Path> i = Files.list(p).iterator();
+  void traverseRead(Path path, Asset parent) throws IOException {
+    if (Files.isDirectory(path)) {
+      Asset dir;
+      if (path.getFileName() == null) {
+        dir = parent;
+      } else {
+        dir = new AssetDir(path);
+        parent.addChild(dir);
+      }
+      Iterator<Path> i = Files.list(path).sorted().iterator();
       while (i.hasNext()) {
-        traverse(i.next(), d+1);
+        traverseRead(i.next(), dir);
       }
     } else {
-      if (p.getFileName().toString().indexOf("png") > 0) {
-        for (int k = 0; k < d; k++) System.out.print(". ");
-        System.out.println(p.getFileName());
+      if (path.getFileName().toString().endsWith(".png")) {
+        Asset png = new AssetPNG(path);
+        parent.addChild(png);
+      } else if (path.getFileName().toString().toLowerCase().equals("pack.mcmeta")) {
+        parent.addChild(new AssetPack(path));
       }
     }
   }
   
-  public void scrape() throws IOException {
+  public Asset scrape() throws IOException, URISyntaxException {
     Path zipFilePath = Paths.get(path);
-    fs = FileSystems.newFileSystem(zipFilePath, null);
-    for (Path root : fs.getRootDirectories()) {
-      traverse(root, 0);
+    final URI uri = URI.create("jar:file:" + zipFilePath.toUri().getPath());
+    final Map<String, String> env = new HashMap<>();
+    env.put("create", "true");
+    fs = FileSystems.newFileSystem(uri, env);
+
+    Asset newRoot = new Asset(zipFilePath);
+    for (Path rootDir : fs.getRootDirectories()) {
+      traverseRead(rootDir, newRoot);
+    }
+    newRoot.loadAll();
+    this.root = newRoot;
+    return newRoot;
+  }
+  
+  public void sync() throws IOException {
+    fs.close();
+    Path zipFilePath = Paths.get(path);
+    final URI uri = URI.create("jar:file:" + zipFilePath.toUri().getPath());
+    final Map<String, String> env = new HashMap<>();
+    env.put("create", "true");
+    fs = FileSystems.newFileSystem(uri, env);
+    traverseRefresh(root);
+  }
+  
+  void traverseRefresh(Asset a) {
+    a.assetPath = fs.getPath(a.assetPath.toString());
+    for (Asset c : a.getChildren()) {
+      traverseRefresh(c);
     }
   }
 }
+

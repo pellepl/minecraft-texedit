@@ -92,7 +92,7 @@ public class UIColorChooser extends JPanel {
     return Math.round(src+f*(dst-src));
   }
   
-  public static Color choose(Frame owner, Color def, UIPainter painter) {
+  public static JDialog choose(Frame owner, Color def, UIPainter painter) {
     UIColorChooser ui = new UIColorChooser(def, painter);
     JDialog dialog = new JDialog(owner);
     dialog.setModalExclusionType(Dialog.ModalExclusionType.TOOLKIT_EXCLUDE);
@@ -100,7 +100,7 @@ public class UIColorChooser extends JPanel {
     dialog.add(ui);
     dialog.pack();
     dialog.setVisible(true);
-    return null;
+    return dialog;
   }
   
   JLabel colLabel = new JLabel(new ImageIcon(imgPalette));

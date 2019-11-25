@@ -1,12 +1,15 @@
 package com.pelleplutt.mctexedit;
 
 import java.awt.*;
+import java.awt.datatransfer.*;
 import java.awt.event.*;
 import java.awt.geom.*;
 import java.awt.image.*;
+import java.io.*;
 import java.util.*;
 import java.util.List;
 
+import javax.imageio.*;
 import javax.swing.*;
 
 import com.pelleplutt.util.*;
@@ -20,9 +23,9 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   static final int USER_PAINT_ERASE = 23;
   static final int USER_PICK = 30;
   
-  final static Color colTrans1 = new Color(255,255,255,255);
-  final static Color colTrans2 = new Color(230,230,230,255);
-  final static Color colGrid = new Color(200,200,200);
+  final static Color colTrans1 = new Color(40,40,40,255);
+  final static Color colTrans2 = new Color(45,45,45,255);
+  final static Color colGrid = new Color(0,0,0);
   final static int ICON_W = 28;
   final static int ICON_H = 28;
   final static Image iconImageFill = AppSystem.loadImage("fill.png");
@@ -42,44 +45,42 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   final static MultiplyComposite multiplyComposite = new MultiplyComposite();
 
   
-  BufferedImage img = new BufferedImage(500, 500, BufferedImage.TYPE_INT_ARGB);
+  BufferedImage img = null;//new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
   Color penColor;
   Color eraseColor = new Color(0,0,0,0);
   Stroke stroke = new BasicStroke(1);
   int mag = 1;
-  int toolState = USER_UNDEF;
-  int dragState = USER_UNDEF;
+  int toolState = USER_PAINT_PEN;
+  int dragState = USER_PAINT;
   Point dragAnchor;
   Point dragPrev;
   JScrollPane scrl;
+  PainterListener listener;
   Tools tools = new Tools();
+  Object user;
+  int offsX, offsY;
   
   List<BufferedImage> history = new ArrayList<BufferedImage>();
   int historyCursor = 0;
   
   public UIPainter() {
-    Graphics g = img.getGraphics();
-    g.setColor(Color.white);
-    g.fillRect(0, 0, 200, 200);
-    g.setColor(Color.red);
-    g.drawLine(0, 0, img.getWidth(), img.getHeight());
-    g.drawLine(img.getWidth(), 0, 0, img.getHeight());
-    g.dispose();
     selectColor(0xff000000);
     recalcSize();
+    setTransferHandler(new ImageSelection());
   }
   
   public UIPainter(BufferedImage img) {
     this.img = img;
     selectColor(0xff000000);
     recalcSize();
+    setTransferHandler(new ImageSelection());
   }
   
   static BufferedImage copy(BufferedImage bi) {
-    ColorModel cm = bi.getColorModel();
-    boolean isAlphaPremultiplied = cm.isAlphaPremultiplied();
-    WritableRaster raster = bi.copyData(null);
-    return new BufferedImage(cm, raster, isAlphaPremultiplied, null);
+    if (bi == null) return null;
+    BufferedImage c = new BufferedImage(bi.getWidth(), bi.getHeight(), BufferedImage.TYPE_INT_ARGB);
+    c.getGraphics().drawImage(bi, 0, 0, null);
+    return c;
   }
   
   JFrame owner;
@@ -94,10 +95,21 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     int vpy = scrl.getVerticalScrollBar().getValue();
     int vpw = scrl.getViewport().getWidth();
     int vph = scrl.getViewport().getHeight();
+    if (img == null) {
+      g.setColor(Color.darkGray);
+      g.fillRect(vpx,vpy,vpw,vph);
+      return;
+    }
     int iw = img.getWidth() * mag;
     int ih = img.getHeight() * mag;
     g.setColor(Color.darkGray);
     g.fillRect(vpx,vpy,vpw,vph);
+    
+    offsX = 0;
+    offsY = 0;
+    if (iw < vpw) offsX = (vpw - iw) / 2;
+    if (ih < vph) offsY = (vph - ih) / 2;
+    
     {
       final int G = 16;
       int ox = vpx - (vpx % (2*G));
@@ -112,37 +124,75 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
         for (int x = ox; x < w; x += G) {
           int gw = x + G > iw ? iw-x : G;
           g.setColor(tc ? colTrans1 : colTrans2);
-          g.fillRect(x, y, gw, gh);
+          g.fillRect(x + offsX, y + offsY, gw, gh);
           tc = !tc;
         }
       }
     }
+    
     AffineTransform prevTransform = g.getTransform();
     AffineTransform t = (AffineTransform)prevTransform.clone();
+    t.translate(offsX, offsY);
     t.scale(mag, mag);
     g.setTransform(t);
-    g.drawImage(img, 0, 0, this);
+    g.drawImage(img, 0,0, this);
     g.setTransform(prevTransform);
     if (mag > 3) {
       int ox = vpx - (vpx % mag);
       int oy = vpy - (vpy % mag);
       g.setXORMode(colGrid);
       for (int y = oy; y < ih; y += mag) {
-        g.drawLine(0,y,iw,y);
+        g.drawLine(offsX,y+offsY,iw + offsX,y+offsY);
       }
       for (int x = ox; x < iw; x += mag) {
-        g.drawLine(x,0,x,ih);
+        g.drawLine(x+offsX,offsY,x+offsX,ih + offsY);
       }
       g.setPaintMode();
     }
   }
 
-  public void setImage(BufferedImage img) {
-    this.img = img;
+  public void setImage(Image newImg, int w, int h) {
+    img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+    img.getGraphics().drawImage(newImg, 0, 0, null);
+    history.clear();
+    historyCursor = 0;
+    updateHistoryState(false);
     recalcSize();
+  }
+  
+  static int leastSideLog2(int w, int h) {
+    int min = Math.min(w, h);
+    int bit;
+    for (bit = 16; bit > 1; bit--) {
+      if ((min & (1<<bit)) != 0) {
+        break;
+      }
+    }
+    return (1<<bit);
+  }
+  
+  public void pasteImage(Image newImg, int w, int h) {
+    saveHistory();
+    int sz = leastSideLog2(w,h);
+    img = new BufferedImage(sz, sz, BufferedImage.TYPE_INT_ARGB);
+    Graphics2D g = (Graphics2D)img.getGraphics();
+    g.scale((double)sz/(double)w, (double)sz/(double)h);
+    g.drawImage(newImg, 0, 0, null);
+    g.dispose();
+    recalcSize();
+    fireModifiedEvent();
+  }
+  
+  public BufferedImage getImage() {
+    return img;
+  }
+  
+  public void setUserObject(Object u) {
+    user = u;
   }
 
   void magResize(int newMag, Point pivot) {
+    if (img == null) return;
     double offsH = (double) scrl.getHorizontalScrollBar().getValue() / (double)mag;
     double pivotH = offsH + (double) pivot.getX() / (double)mag;
     double nrangeH = (double) img.getWidth() / newMag;
@@ -165,6 +215,7 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   
   private Dimension __d = new Dimension();
   void recalcSize() {
+    if (img == null) return;
     __d.width = (int)(mag * img.getWidth());
     __d.height = (int)(mag * img.getHeight());
     setMinimumSize(__d);
@@ -220,27 +271,49 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
         history.add(copy(img));
       }
       historyCursor--;
-      img = history.get(historyCursor);
+      Graphics2D g = (Graphics2D)img.getGraphics();
+      g.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
+      g.fillRect(0,0,img.getWidth(), img.getHeight());
+      g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER));
+      g.drawImage(history.get(historyCursor), 0,0, null);
+      g.dispose();
+      fireModifiedEvent();
     }
     repaint();
-    updateHistoryState();
+    updateHistoryState(true);
   }
   
   public void redo() {
     if (historyCursor < history.size()-1) {
       historyCursor++;
-      img = history.get(historyCursor);
+      Graphics2D g = (Graphics2D)img.getGraphics();
+      g.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
+      g.fillRect(0,0,img.getWidth(), img.getHeight());
+      g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER));
+      g.drawImage(history.get(historyCursor), 0,0, null);
+      g.dispose();
+      fireModifiedEvent();
     }
     repaint();
-    updateHistoryState();
+    updateHistoryState(true);
   }
   
-  void updateHistoryState() {
+  void updateHistoryState(boolean event) {
     tools.setUndoEnabled(historyCursor > 0);
     tools.setRedoEnabled(historyCursor < history.size()-1);
+    if (event) fireHistoryEvent();
+  }
+  
+  void saveHistory() {
+    history.add(copy(img));
+    historyCursor++;
+    updateHistoryState(true);
   }
 
+  int oldToolState; 
   public void mousePressed(MouseEvent e) {
+    if (img == null) return;
+    oldToolState = toolState;
     dragAnchor = (Point)e.getPoint().clone();
     dragPrev = dragAnchor;
     switch (e.getButton()) {
@@ -248,15 +321,18 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
       dragState = USER_MOVE;
       setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
       break;
+    case MouseEvent.BUTTON2:
+      dragState = USER_PAINT;
+      newToolState(USER_PICK);
+      execute((Point)e.getPoint().clone(), (Point)e.getPoint().clone());
+      break;
     case MouseEvent.BUTTON1:
       dragState = USER_PAINT;
       if (toolState == USER_PAINT_PEN || toolState == USER_PAINT_ERASE || toolState == USER_PAINT_FILL) {
         while (history.size() > historyCursor) {
           history.remove(historyCursor);
         }
-        history.add(copy(img));
-        historyCursor++;
-        updateHistoryState();
+        saveHistory();
       }
       execute((Point)e.getPoint().clone(), (Point)e.getPoint().clone());
     }
@@ -264,6 +340,7 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
 
   public void mouseReleased(MouseEvent e) {
     dragState = USER_UNDEF;
+    newToolState(oldToolState);
     updateMouseCursorToTool(toolState);
   }
   
@@ -277,8 +354,9 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   }
   
   void execute(Point from, Point to) {
-    int ox = scrl.getHorizontalScrollBar().getValue();
-    int oy = scrl.getVerticalScrollBar().getValue();
+    if (img == null) return;
+    int ox = scrl.getHorizontalScrollBar().getValue()-offsX;
+    int oy = scrl.getVerticalScrollBar().getValue()-offsY;
     from.translate(ox, oy);
     to.translate(ox, oy);
     Graphics2D g = (Graphics2D)img.getGraphics();
@@ -286,12 +364,16 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     if (toolState == USER_PAINT_PEN) {
       g.setColor(penColor);
       g.drawLine((int)(from.x/mag), (int)(from.y/mag), (int)(to.x/mag), (int)(to.y/mag));
+      fireModifiedEvent();
     } else if (toolState == USER_PAINT_ERASE) {
       g.setColor(eraseColor);
       g.setComposite(multiplyComposite);
       g.drawLine((int)(from.x/mag), (int)(from.y/mag), (int)(to.x/mag), (int)(to.y/mag));
+      fireModifiedEvent();
     } else if (toolState == USER_PICK) {
-      selectColor(img.getRGB(to.x/mag, to.y/mag));
+      if (to.x/mag >= 0 && to.y/mag >= 0 && to.x/mag < img.getWidth() && to.y/mag < img.getHeight()) {
+        selectColor(img.getRGB(to.x/mag, to.y/mag));
+      }
     } else if (toolState == USER_PAINT_FILL) {
       int x = (int)(to.x/mag);
       int y = (int)(to.y/mag);
@@ -313,6 +395,7 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
         visits.add(new Point(p.x,p.y-1));
         visits.add(new Point(p.x,p.y+1));
       }
+      fireModifiedEvent();
     }
     g.dispose();
     repaint();
@@ -340,6 +423,22 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   
   public Tools getToolsPanel() {
     return tools;
+  }
+  
+  public void setListener(PainterListener l) {
+    this.listener = l;
+  }
+  
+  void fireModifiedEvent() {
+    if (listener != null) {
+      listener.modified(user, img);
+    }
+  }
+
+  void fireHistoryEvent() {
+    if (listener != null) {
+      listener.history(user, img, history.size(), historyCursor);
+    }
   }
   
   void selectColor(int color) {
@@ -394,7 +493,17 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
         }),
         new JButton(new AbstractAction("", new ImageIcon(iconImagePalette)) {
           public void actionPerformed(ActionEvent e) {
-            UIColorChooser.choose(owner, penColor, UIPainter.this);
+            if (chooser == null) {
+              chooser = UIColorChooser.choose(owner, penColor, UIPainter.this);
+              chooser.addWindowListener(new WindowAdapter() {
+                public void windowClosed(WindowEvent e) {
+                  chooser = null;
+                }
+              });
+            } else {
+              chooser.setVisible(true);
+              chooser.requestFocus();
+            }
           }
         }),
         new JButton(new AbstractAction("", new ImageIcon(iconImageUndo)) {
@@ -408,6 +517,7 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
           }
         }),
     };
+    volatile JDialog chooser;
     public void setUndoEnabled(boolean e) {
       buts[6].setEnabled(e);
     }
@@ -475,4 +585,74 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     public void dispose() {
     }
   }
+  
+  interface PainterListener {
+    public void modified(Object user, Image img);
+    public void history(Object user, Image img, int historyLength, int historyPos);
+  }
+
+
+
+  // Stolen from
+  // http://www.java2s.com/Tutorial/Java/0240__Swing/DragandDropSupportforImages.htm
+  class ImageSelection extends TransferHandler implements Transferable {
+
+    private final DataFlavor flavors[] = { DataFlavor.imageFlavor, DataFlavor.allHtmlFlavor };
+
+    public int getSourceActions(JComponent c) {
+      return TransferHandler.COPY;
+    }
+
+    public boolean canImport(JComponent comp, DataFlavor flavor[]) {
+      for (int i = 0, n = flavor.length; i < n; i++) {
+        for (int j = 0, m = flavors.length; j < m; j++) {
+          if (flavor[i].equals(flavors[j])) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    public Transferable createTransferable(JComponent comp) {
+      return null;
+    }
+
+    public boolean importData(JComponent comp, Transferable t) {
+      DataFlavor f[] = t.getTransferDataFlavors();
+      // mimetype=application/octet-stream;representationclass=java.io.InputStream
+
+      for (DataFlavor ff : f) {
+        if (!ff.isRepresentationClassInputStream())
+          continue;
+        if (!ff.getMimeType().equals("application/octet-stream; class=java.io.InputStream"))
+          continue;
+        try {
+          Image img = ImageIO.read((InputStream) t.getTransferData(ff));
+          pasteImage(img, img.getWidth(null), img.getHeight(null));
+          return true;
+        } catch (UnsupportedFlavorException | IOException e) {
+          e.printStackTrace();
+        }
+      }
+      return false;
+    }
+
+    // Transferable
+    public Object getTransferData(DataFlavor flavor) {
+      if (isDataFlavorSupported(flavor)) {
+        return null; // image
+      }
+      return null;
+    }
+
+    public DataFlavor[] getTransferDataFlavors() {
+      return flavors;
+    }
+
+    public boolean isDataFlavorSupported(DataFlavor flavor) {
+      return flavors[0].equals(flavor);
+    }
+  }
+
 }
