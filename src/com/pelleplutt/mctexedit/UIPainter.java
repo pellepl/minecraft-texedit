@@ -199,7 +199,11 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   Coord p2 = new Coord();
   Coord p3 = new Coord();
   Coord p4 = new Coord();
-  Coord psel = null;
+  Coord ap1 = new Coord();
+  Coord ap2 = new Coord();
+  Coord ap3 = new Coord();
+  Coord ap4 = new Coord();
+  int transformPointsSel = 0;
   
   void paintOverlay(Graphics2D g, int mag, int ox, int oy) {
     final int SZ = 16;
@@ -400,16 +404,48 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     double dy = e.getPoint().y - cy;
     return Math.sqrt(dx*dx + dy*dy);
   }
+  
+  final static Coord PTRANSLATE = new Coord();
+  final static Coord coordInsXy = new Coord();
+  final static Coord coordInsUv = new Coord();
+  final static Transformer insideTrans = new Transformer();
+  
   public void mousePressed(MouseEvent e) {
     if (img == null) return;
     dragAnchor = (Point)e.getPoint().clone();
     dragPrev = dragAnchor;
     if (overlayImg != null) {
-      if (mouseDistToPoint(p1, e) < 16) psel = p1; else
-      if (mouseDistToPoint(p2, e) < 16) psel = p2; else
-      if (mouseDistToPoint(p3, e) < 16) psel = p3; else
-      if (mouseDistToPoint(p4, e) < 16) psel = p4; else
-        psel = null;
+      int vpx = scrl.getHorizontalScrollBar().getValue();
+      int vpy = scrl.getVerticalScrollBar().getValue();
+      coordInsXy.x = (float)(e.getPoint().x - offsX + vpx) /(float)mag;
+      coordInsXy.y = (float)(e.getPoint().y - offsY + vpy) /(float)mag;
+      insideTrans.setCoords(p1, p2, p3, p4);
+      insideTrans.calc(coordInsXy, coordInsUv);
+      final float LIMITP = 0.05f; 
+      final float LIMITN = 1f - LIMITP; 
+      boolean inside = coordInsUv.x >= LIMITP && coordInsUv.x < LIMITN && coordInsUv.y >= LIMITP && coordInsUv.y < LIMITN; 
+      boolean onsideW = (coordInsUv.x > -LIMITP && coordInsUv.x < LIMITP && coordInsUv.y >= 0 && coordInsUv.y < 1);
+      boolean onsideE = (coordInsUv.x >  LIMITN && coordInsUv.x < 1+LIMITP && coordInsUv.y >= 0 && coordInsUv.y < 1);
+      boolean onsideN = (coordInsUv.y > -LIMITP && coordInsUv.y < LIMITP && coordInsUv.x >= 0 && coordInsUv.x < 1);
+      boolean onsideS = (coordInsUv.y >  LIMITN && coordInsUv.y < 1+LIMITP && coordInsUv.x >= 0 && coordInsUv.x < 1);
+      
+      if (mouseDistToPoint(p1, e) < 16) transformPointsSel = (1<<0); else
+      if (mouseDistToPoint(p2, e) < 16) transformPointsSel = (1<<1); else
+      if (mouseDistToPoint(p3, e) < 16) transformPointsSel = (1<<2); else
+      if (mouseDistToPoint(p4, e) < 16) transformPointsSel = (1<<3); else
+      if (inside)                       transformPointsSel = 0xf;    else
+      if (onsideW)                      transformPointsSel = (1<<0) | (1<<3);    else
+      if (onsideN)                      transformPointsSel = (1<<1) | (1<<0);    else
+      if (onsideE)                      transformPointsSel = (1<<2) | (1<<1);    else
+      if (onsideS)                      transformPointsSel = (1<<3) | (1<<2);    else
+      {
+        // start rotate, store anchor values
+        transformPointsSel = 0;
+        ap1.set(p1);
+        ap2.set(p2);
+        ap3.set(p3);
+        ap4.set(p4);
+      }
     } else {
       oldToolState = toolState;
       switch (e.getButton()) {
@@ -432,24 +468,46 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     }
   }
   
+  Coord cenp = new Coord();
   public void mouseDragged(MouseEvent e) {
     if (overlayImg != null) {
-      int vpx = scrl.getHorizontalScrollBar().getValue();
-      int vpy = scrl.getVerticalScrollBar().getValue();
-      if (psel != null) {
-        psel.x = (float)(e.getPoint().x - offsX + vpx) /(float)mag;
-        psel.y = (float)(e.getPoint().y - offsY + vpy) /(float)mag;
-      } else {
+      if (transformPointsSel != 0) {
+        // translate
         float dx = (e.getPoint().x - dragPrev.x) / (float)mag;
         float dy = (e.getPoint().y - dragPrev.y) / (float)mag;
-        p1.x += dx;
-        p1.y += dy;
-        p2.x += dx;
-        p2.y += dy;
-        p3.x += dx;
-        p3.y += dy;
-        p4.x += dx;
-        p4.y += dy;
+        if ((transformPointsSel & (1<<0)) != 0) {
+          p1.x += dx;
+          p1.y += dy;
+        }
+        if ((transformPointsSel & (1<<1)) != 0) {
+          p2.x += dx;
+          p2.y += dy;
+        }
+        if ((transformPointsSel & (1<<2)) != 0) {
+          p3.x += dx;
+          p3.y += dy;
+        }
+        if ((transformPointsSel & (1<<3)) != 0) {
+          p4.x += dx;
+          p4.y += dy;
+        }
+      } else {
+        // rotate
+        int vpx = scrl.getHorizontalScrollBar().getValue();
+        int vpy = scrl.getVerticalScrollBar().getValue();
+        float ox = (float)(dragAnchor.x - offsX + vpx) /(float)mag;
+        float oy = (float)(dragAnchor.y - offsY + vpy) /(float)mag;
+        float mx = (float)(e.getPoint().x - offsX + vpx) /(float)mag;
+        float my = (float)(e.getPoint().y - offsY + vpy) /(float)mag;
+        cenp.x = (ap1.x + ap2.x + ap3.x + ap4.x) / 4.0f;
+        cenp.y = (ap1.y + ap2.y + ap3.y + ap4.y) / 4.0f;
+        double originalAngle = Math.atan2(oy - cenp.y, ox - cenp.x);
+        double newAngle = Math.atan2(my - cenp.y, mx - cenp.x);
+        double ang = newAngle - originalAngle;
+        p1.rotate(ap1, ang, cenp);
+        p2.rotate(ap2, ang, cenp);
+        p3.rotate(ap3, ang, cenp);
+        p4.rotate(ap4, ang, cenp);
       }
       repaint();
     } else {
