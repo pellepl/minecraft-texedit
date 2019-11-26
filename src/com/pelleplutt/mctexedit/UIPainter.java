@@ -160,6 +160,8 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   }
 
   public void setImage(Image newImg, int w, int h) {
+    overlayImg = null;
+    overlayTmp = null;
     img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
     img.getGraphics().drawImage(newImg, 0, 0, null);
     history.clear();
@@ -182,7 +184,7 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     return e2 < e1 ? (1<<bit) : (1<<(bit+1));
   }
   
-  public void pasteImageOrig(Image newImg, int w, int h) {
+  public void replaceImage(Image newImg, int w, int h) {
     saveHistoryBeforeChange();
     int nw = leastErrSideLog2(w);
     int nh = leastErrSideLog2(h);
@@ -235,8 +237,8 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     g.drawRect(p4x-SZ/2, p4y-SZ/2, SZ, SZ);
   }
   
-  void recalcOverlay() {
-    Graphics2D g = (Graphics2D)overlayTmp.getGraphics();
+  void recalcOverlay(BufferedImage dst) {
+    Graphics2D g = (Graphics2D)dst.getGraphics();
     g.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR));
     g.fillRect(0,0,img.getWidth(), img.getHeight());
     g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER));
@@ -245,19 +247,32 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     t.setCoords(p1, p2, p3, p4);
     Coord xy = new Coord();
     Coord uv = new Coord();
-    for (int y = 0; y < overlayTmp.getHeight(); y++) {
-      for (int x = 0; x < overlayTmp.getWidth(); x++) {
+    for (int y = 0; y < dst.getHeight(); y++) {
+      for (int x = 0; x < dst.getWidth(); x++) {
         xy.set(x,y);
         t.calc(xy, uv);
         int u = (int)(uv.x * overlayImg.getWidth());
         int v = (int)(uv.y * overlayImg.getHeight());
         if (u >= 0 && u < overlayImg.getWidth() && v >= 0 && v < overlayImg.getHeight()) {
-          overlayTmp.setRGB(x, y, overlayImg.getRGB(u, v));
+          dst.setRGB(x, y, overlayImg.getRGB(u, v));
         }
       }
     }
     
     g.dispose();
+  }
+  
+  void applyOverlay() {
+    p1.mul(4f);
+    p2.mul(4f);
+    p3.mul(4f);
+    p4.mul(4f);
+    BufferedImage biggie = new BufferedImage(overlayTmp.getWidth()*4, overlayTmp.getHeight()*4, BufferedImage.TYPE_INT_ARGB);
+    recalcOverlay(biggie);
+    Image overlay = biggie.getScaledInstance(overlayTmp.getWidth(), overlayTmp.getHeight(), BufferedImage.SCALE_SMOOTH);
+    img.getGraphics().drawImage(overlay, 0, 0, null);
+    overlayImg = null;
+    overlayTmp = null;
   }
   
   public void pasteImage(Image newImg, int w, int h) {
@@ -272,7 +287,7 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
     p3.set(img.getWidth(), img.getHeight());
     p4.set(0, img.getHeight());
     
-    recalcOverlay();
+    recalcOverlay(overlayTmp);
     
     repaint();
   }
@@ -325,30 +340,51 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   }
   
   void updateMouseCursorToTool(int tool) {
-    switch (tool) {
-    case USER_MOVE:
-      setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
-      break;
-    case USER_PAINT_PEN:
-      setCursor(cursorPen);
-      break;
-    case USER_PAINT_FILL:
-      setCursor(cursorFill);
-      break;
-    case USER_PAINT_ERASE:
-      setCursor(cursorErase);
-      break;
-    case USER_PICK:
-      setCursor(cursorPick);
-      break;
-    default:
-      setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
-      break;
+    if (overlayImg != null) {
+      switch (tool) {
+      case USER_MOVE:
+        setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+        break;
+      default:
+        setCursor(Cursor.getPredefinedCursor(Cursor.CROSSHAIR_CURSOR));
+        break;
+      }
+    } else {
+      switch (tool) {
+      case USER_MOVE:
+        setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+        break;
+      case USER_PAINT_PEN:
+        setCursor(cursorPen);
+        break;
+      case USER_PAINT_FILL:
+        setCursor(cursorFill);
+        break;
+      case USER_PAINT_ERASE:
+        setCursor(cursorErase);
+        break;
+      case USER_PICK:
+        setCursor(cursorPick);
+        break;
+      default:
+        setCursor(Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR));
+        break;
+      }
     }
 
   }
 
   public void mouseClicked(MouseEvent e) {
+    if (overlayImg != null && e.getClickCount() == 2) {
+      if (e.getButton() == MouseEvent.BUTTON1) {
+        saveHistoryBeforeChange();
+        applyOverlay();
+      } else {
+        overlayImg = null;
+      }
+      updateMouseCursorToTool(toolState);
+      repaint();
+    }
   }
 
   public void mouseEntered(MouseEvent e) {
@@ -446,20 +482,23 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
         ap3.set(p3);
         ap4.set(p4);
       }
-    } else {
-      oldToolState = toolState;
-      switch (e.getButton()) {
-      case MouseEvent.BUTTON3:
-        dragState = USER_MOVE;
-        setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
-        break;
-      case MouseEvent.BUTTON2:
-        dragState = USER_PAINT;
+    }
+    oldToolState = toolState;
+    switch (e.getButton()) {
+    case MouseEvent.BUTTON3:
+      dragState = USER_MOVE;
+      setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+      break;
+    case MouseEvent.BUTTON2:
+      dragState = USER_PAINT;
+      if (overlayImg == null) {
         newToolState(USER_PICK);
         execute((Point)e.getPoint().clone(), (Point)e.getPoint().clone());
-        break;
-      case MouseEvent.BUTTON1:
-        dragState = USER_PAINT;
+      }
+      break;
+    case MouseEvent.BUTTON1:
+      dragState = USER_PAINT;
+      if (overlayImg == null) {
         if (toolState == USER_PAINT_PEN || toolState == USER_PAINT_ERASE || toolState == USER_PAINT_FILL) {
           saveHistoryBeforeChange();
         }
@@ -470,7 +509,13 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   
   Coord cenp = new Coord();
   public void mouseDragged(MouseEvent e) {
-    if (overlayImg != null) {
+    if (dragState == USER_MOVE) {
+      int dx = e.getPoint().x - dragPrev.x;
+      int dy = e.getPoint().y - dragPrev.y;
+      scrl.getHorizontalScrollBar().setValue(scrl.getHorizontalScrollBar().getValue() - dx);
+      scrl.getVerticalScrollBar().setValue(scrl.getVerticalScrollBar().getValue() - dy);
+
+    } else if (overlayImg != null) {
       if (transformPointsSel != 0) {
         // translate
         float dx = (e.getPoint().x - dragPrev.x) / (float)mag;
@@ -512,13 +557,6 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
       repaint();
     } else {
       switch (dragState) {
-      case USER_MOVE: {
-        int dx = e.getPoint().x - dragPrev.x;
-        int dy = e.getPoint().y - dragPrev.y;
-        scrl.getHorizontalScrollBar().setValue(scrl.getHorizontalScrollBar().getValue() - dx);
-        scrl.getVerticalScrollBar().setValue(scrl.getVerticalScrollBar().getValue() - dy);
-        break;
-      }
       case USER_PAINT: {
         execute(dragPrev, e.getPoint());
         break;
@@ -530,13 +568,12 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
 
   public void mouseReleased(MouseEvent e) {
     if (overlayImg != null) {
-      recalcOverlay();
+      recalcOverlay(overlayTmp);
       repaint();
-    } else {
-      dragState = USER_UNDEF;
-      newToolState(oldToolState);
-      updateMouseCursorToTool(toolState);
-    }
+    } 
+    dragState = USER_UNDEF;
+    newToolState(oldToolState);
+    updateMouseCursorToTool(toolState);
   }
   
   public void mouseWheelMoved(MouseWheelEvent e) {

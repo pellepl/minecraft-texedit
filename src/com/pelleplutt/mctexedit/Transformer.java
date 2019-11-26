@@ -42,6 +42,7 @@ public class Transformer {
     public Coord(float xx, float yy) { x = xx; y = yy; }
     public void set(Coord c) { x = c.x; y = c.y; }
     public void set(float xx, float yy) { x = xx; y = yy; }
+    public void mul(float m) { x *= m; y *= m; }
     void normal(Coord a, Coord b) { x = b.y - a.y; y = -(b.x - a.x); }
     public void rotate(Coord c, double ang, Coord pivot) {
       float rx = c.x - pivot.x;
