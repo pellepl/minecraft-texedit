@@ -188,6 +188,7 @@ public class UIAssetTree extends JPanel {
       public void actionPerformed(ActionEvent e) {
         File f = UIUtil.selectFile(owner, "Load a resource pack", "OK", true, false);
         if (f == null) return;
+        Bootstrap.storeSettings();
         JDialog wait = getWait(owner);
         SwingUtilities.invokeLater(new Runnable() {
           public void run() {

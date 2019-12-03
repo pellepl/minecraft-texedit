@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<project default="deploy" name="Deploy mctexedit">
+
+	<property environment="env" />
+	<property name="debuglevel" value="source,lines,vars" />
+	<property name="target" value="1.8" />
+	<property name="source" value="1.8" />
+	<path id="minecraft-texedit.classpath">
+		<pathelement location="bin" />
+	</path>
+	<target name="init">
+		<mkdir dir="bin" />
+		<copy includeemptydirs="false" todir="bin">
+			<fileset dir="src">
+				<exclude name="**/*.launch" />
+				<exclude name="**/*.java" />
+				<exclude name="**/test/**" />
+			</fileset>
+		</copy>
+		<copy includeemptydirs="false" todir="bin">
+			<fileset dir="res">
+				<exclude name="**/*.launch" />
+				<exclude name="**/*.java" />
+				<exclude name="**/test/**" />
+			</fileset>
+		</copy>
+		<copy includeemptydirs="false" todir="bin">
+			<fileset dir="java-utils/res">
+				<exclude name="**/*.launch" />
+				<exclude name="**/*.java" />
+				<exclude name="**/test/**" />
+			</fileset>
+		</copy>
+		<copy includeemptydirs="false" todir="bin">
+			<fileset dir="java-utils/src">
+				<exclude name="**/*.launch" />
+				<exclude name="**/*.java" />
+				<exclude name="**/test/**" />
+			</fileset>
+		</copy>
+	</target>
+	<target name="clean">
+		<delete dir="bin" />
+	</target>
+	<target depends="clean" name="cleanall" />
+	<target depends="build-project" name="build" />
+	<target depends="init" name="build-project">
+		<echo message="${ant.project.name}: ${ant.file}" />
+		<javac debug="true" debuglevel="${debuglevel}" destdir="bin" includeantruntime="false" source="${source}" target="${target}">
+			<src path="src" />
+			<src path="java-utils/res" />
+			<src path="java-utils/src" />
+			<exclude name="**/test/**" />
+			<classpath refid="minecraft-texedit.classpath" />
+		</javac>
+	</target>
+
+	<target depends="clean,build" name="deploy">
+		<jar destfile="deploy/mctexedit.jar" filesetmanifest="mergewithoutmain">
+			<manifest>
+				<attribute name="Main-Class" value="com.pelleplutt.mctexedit.Bootstrap" />
+				<attribute name="Class-Path" value="." />
+			</manifest>
+			<fileset dir="./bin" />
+		</jar>
+	</target>
+</project>

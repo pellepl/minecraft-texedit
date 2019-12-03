@@ -6,11 +6,13 @@ import java.awt.event.*;
 import java.awt.geom.*;
 import java.awt.image.*;
 import java.io.*;
+import java.net.*;
 import java.util.*;
 import java.util.List;
 
 import javax.imageio.*;
 import javax.swing.*;
+import java.util.*;
 
 import com.pelleplutt.util.*;
 import com.pelleplutt.mctexedit.Transformer.*;
@@ -816,7 +818,7 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   // http://www.java2s.com/Tutorial/Java/0240__Swing/DragandDropSupportforImages.htm
   class ImageSelection extends TransferHandler implements Transferable {
 
-    private final DataFlavor flavors[] = { DataFlavor.allHtmlFlavor };
+    private final DataFlavor flavors[] = { DataFlavor.imageFlavor, DataFlavor.allHtmlFlavor };
 
     public int getSourceActions(JComponent c) {
       return TransferHandler.COPY;
@@ -837,22 +839,35 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
       return null;
     }
 
-    public boolean importData(JComponent comp, Transferable t) {
-      DataFlavor f[] = t.getTransferDataFlavors();
-      // mimetype=application/octet-stream;representationclass=java.io.InputStream
+    public boolean importData(JComponent comp, Transferable transferable) {
+      DataFlavor f[] = transferable.getTransferDataFlavors();
 
       for (DataFlavor ff : f) {
         Log.println("flavor:" + ff + " mimetype:" + ff.getMimeType());
-        if (!ff.isRepresentationClassInputStream())
-          continue;
-        if (!ff.getMimeType().equals("application/octet-stream; class=java.io.InputStream"))
-          continue;
         try {
-          Log.println("reading flavor as image");
-          Image nimg = ImageIO.read((InputStream) t.getTransferData(ff));
-          pasteImage(nimg, nimg.getWidth(null), nimg.getHeight(null));
-          return true;
-        } catch (UnsupportedFlavorException | IOException e) {
+          if (DataFlavor.javaFileListFlavor.equals(ff)) {
+            Object o = transferable.getTransferData(ff);
+            if (o instanceof List) {
+              List list = (List)o;
+              for (Object mfile : list) {
+                if (mfile instanceof File) {
+                  File file = (File)mfile;
+                  Log.println(file.toString());
+                  Image nimg = ImageIO.read(file);
+                  pasteImage(nimg, nimg.getWidth(null), nimg.getHeight(null));
+                  return true;
+                }
+              }
+            }
+          }
+          else if (ff.getMimeType().equals("application/octet-stream; class=java.io.InputStream")) {
+            Log.println("reading flavor as image");
+            Image nimg = ImageIO.read((InputStream) transferable.getTransferData(ff));
+            pasteImage(nimg, nimg.getWidth(null), nimg.getHeight(null));
+            return true;
+          }
+        } catch (IOException | UnsupportedFlavorException e) {
+          e.printStackTrace();
           Log.printStackTrace(e);
         }
       }

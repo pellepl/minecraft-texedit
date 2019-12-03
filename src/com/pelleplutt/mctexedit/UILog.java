@@ -17,6 +17,8 @@ public class UILog extends FastTextPane {
         buf = new StringBuilder();
       }
       if (c == '\r') {
+        UILog.this.addText(buf.toString());
+        buf = new StringBuilder();
         ignoreNewLine = true;
       } else {
         ignoreNewLine = false;
