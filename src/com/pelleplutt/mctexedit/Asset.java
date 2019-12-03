@@ -89,12 +89,13 @@ public class Asset {
     }
     
     void load() {
+      Log.println("loading " + assetPath);
       try (InputStream in = Files.newInputStream(assetPath)) {
         png = ImageIO.read(in);
         thumb = new ImageIcon(png.getScaledInstance(24, 24, BufferedImage.SCALE_SMOOTH));
       } catch (Throwable t) {
-        System.out.println(name);
-        t.printStackTrace();
+        Log.println(name);
+        Log.printStackTrace(t);
       }
     }
     
@@ -108,7 +109,7 @@ public class Asset {
         thumb = new ImageIcon(png.getScaledInstance(24, 24, BufferedImage.SCALE_SMOOTH));
         setModified(false);
       } catch (Throwable t) {
-        t.printStackTrace();
+        Log.printStackTrace(t);
       }
     }
     
@@ -136,7 +137,7 @@ public class Asset {
         lines.forEach(line -> System.out.println(line));
         for (String l : lines) System.out.println(l);
       } catch (Throwable t) {
-        t.printStackTrace();
+        Log.printStackTrace(t);
       }
     }
 

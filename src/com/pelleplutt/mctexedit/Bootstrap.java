@@ -10,9 +10,17 @@ import javax.swing.tree.*;
 
 import com.pelleplutt.mctexedit.Asset.*;
 import com.pelleplutt.mctexedit.UIPainter.*;
+import com.pelleplutt.util.*;
 
 public class Bootstrap {
   public static void main(String[] args) {
+    UILog uilog = new UILog();
+    Log.out = uilog.getPrintStream();
+    for (String arg : args) {
+      if (arg.equals("--dbgstdout" )) {
+        Log.out = System.out;
+      }
+    }
     try {
       UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
     } catch (Throwable ignore) {}
@@ -22,8 +30,7 @@ public class Bootstrap {
     try {
       //asset = assets.scrape();
     } catch (Throwable e) {
-      // TODO Auto-generated catch block
-      e.printStackTrace();
+      Log.printStackTrace(e);
     }
 
     JFrame frame = new JFrame();
@@ -38,7 +45,11 @@ public class Bootstrap {
     editPane.add(scrollPane, BorderLayout.CENTER);
     editPane.add(painter.getToolsPanel(), BorderLayout.WEST);
     
-    UIAssetTree tree = new UIAssetTree(frame, assets, asset);
+    JScrollPane log =new JScrollPane(uilog); 
+    uilog.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+    uilog.setBackground(new Color(12,12,12));
+    uilog.setForeground(new Color(96,255,96));
+    UIAssetTree tree = new UIAssetTree(frame, assets, asset, log);
     tree.build();
     tree.setPreferredSize(new Dimension(300,300));
     tree.addTreeSelectionListener( new TreeSelectionListener() {
@@ -54,6 +65,12 @@ public class Bootstrap {
         } else if (asset instanceof AssetPack) {
           
         }
+      }
+    });
+    tree.setUserCallback(new UIAssetTree.UserCallback() {
+      @Override
+      public void importImage(Image i) {
+        painter.replaceImage(i, i.getWidth(null), i.getHeight(null));
       }
     });
     painter.setListener(new PainterListener() {
@@ -74,6 +91,11 @@ public class Bootstrap {
     cp.setLayout(new BorderLayout());
     cp.add(editPane, BorderLayout.CENTER);
     cp.add(tree, BorderLayout.WEST);
+    log.setMaximumSize(new Dimension(100,200));
+    log.setPreferredSize(new Dimension(100,200));
+    log.setSize(new Dimension(100,200));
+    log.setVisible(false);
+    cp.add(log, BorderLayout.SOUTH);
     
     
     scrollPane.addMouseListener(painter);
@@ -83,7 +105,8 @@ public class Bootstrap {
     frame.setSize(700, 400);
     frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
     frame.setVisible(true);
-    tree.load(new File("/home/petera/proj/minecraft-texedit/abbe-resource.zip"));
-    
+    frame.setTitle("Supadupaawesome mc-pack-texedit v1.3");
+    Log.println("Bootstrap done");
+    ///tree.load(new File("/home/petera/proj/minecraft-texedit/abbe-resource.zip"));
   }
 }

@@ -185,6 +185,8 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
   }
   
   public void replaceImage(Image newImg, int w, int h) {
+    overlayImg = null;
+    overlayTmp = null;
     saveHistoryBeforeChange();
     int nw = leastErrSideLog2(w);
     int nh = leastErrSideLog2(h);
@@ -700,7 +702,9 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
               public void actionPerformed(ActionEvent ae) {
                 try {
                   setThickness(Integer.parseInt(ae.getActionCommand()));
-                } catch (Throwable t) {}
+                } catch (Throwable t) {
+                  Log.printStackTrace(t);
+                }
               }
             });
             
@@ -838,18 +842,21 @@ public class UIPainter extends JPanel implements MouseListener, MouseMotionListe
       // mimetype=application/octet-stream;representationclass=java.io.InputStream
 
       for (DataFlavor ff : f) {
+        Log.println("flavor:" + ff + " mimetype:" + ff.getMimeType());
         if (!ff.isRepresentationClassInputStream())
           continue;
         if (!ff.getMimeType().equals("application/octet-stream; class=java.io.InputStream"))
           continue;
         try {
+          Log.println("reading flavor as image");
           Image nimg = ImageIO.read((InputStream) t.getTransferData(ff));
           pasteImage(nimg, nimg.getWidth(null), nimg.getHeight(null));
           return true;
         } catch (UnsupportedFlavorException | IOException e) {
-          e.printStackTrace();
+          Log.printStackTrace(e);
         }
       }
+      Log.println("no suitable dnd flavor found");
       return false;
     }
 

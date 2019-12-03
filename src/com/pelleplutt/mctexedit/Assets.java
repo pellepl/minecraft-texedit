@@ -7,6 +7,7 @@ import java.nio.file.FileSystem;
 import java.util.*;
 
 import com.pelleplutt.mctexedit.Asset.*;
+import com.pelleplutt.util.*;
 
 public class Assets {
   String path;
@@ -41,6 +42,7 @@ public class Assets {
   }
   
   public Asset scrape() throws IOException, URISyntaxException {
+    Log.println("Scraping " + path);
     Path zipFilePath = Paths.get(path);
     final URI uri = URI.create("jar:file:" + zipFilePath.toUri().getPath());
     final Map<String, String> env = new HashMap<>();
@@ -51,12 +53,14 @@ public class Assets {
     for (Path rootDir : fs.getRootDirectories()) {
       traverseRead(rootDir, newRoot);
     }
+    Log.println("Scraping done, loading all");
     newRoot.loadAll();
     this.root = newRoot;
     return newRoot;
   }
   
   public void sync() throws IOException {
+    Log.println("syncing");
     fs.close();
     Path zipFilePath = Paths.get(path);
     final URI uri = URI.create("jar:file:" + zipFilePath.toUri().getPath());

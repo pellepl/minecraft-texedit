@@ -2,10 +2,12 @@ package com.pelleplutt.mctexedit;
 
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.image.*;
 import java.io.*;
 import java.util.*;
 import java.util.List;
 
+import javax.imageio.*;
 import javax.swing.*;
 import javax.swing.event.*;
 import javax.swing.tree.*;
@@ -20,9 +22,11 @@ public class UIAssetTree extends JPanel {
   JTextField filter = new JTextField();
   InvisibleNode root;
   JFrame owner;
+  JComponent debug;
 
-  public UIAssetTree(JFrame owner, Assets assets, Asset asset) {
+  public UIAssetTree(JFrame owner, Assets assets, Asset asset, JScrollPane log) {
     this.owner = owner;
+    this.debug = log;
     setPack(assets, asset);
   }
   
@@ -36,7 +40,7 @@ public class UIAssetTree extends JPanel {
     try {
       if (assets != null) assets.fs.close();
     } catch (Throwable e) {
-      e.printStackTrace();
+      Log.printStackTrace(e);
     }
     try {
       Assets assets = new Assets(f.getAbsolutePath());
@@ -44,7 +48,7 @@ public class UIAssetTree extends JPanel {
       setPack(assets, asset);
       buildTree();
     } catch (Throwable e) {
-      e.printStackTrace();
+      Log.printStackTrace(e);
     }
   }
 
@@ -54,6 +58,12 @@ public class UIAssetTree extends JPanel {
     assets.sync();
   }
 
+  public void importImage(File f) throws IOException {
+    BufferedImage img = ImageIO.read(f);
+    if (img != null && cb != null) {
+      cb.importImage(img);
+    }
+  }
 
   void traverseBuild(InvisibleNode parentNode, Asset parentAsset) {
   
@@ -192,7 +202,7 @@ public class UIAssetTree extends JPanel {
                 try {
                   load(f);
                 } catch (Throwable t) {
-                  t.printStackTrace();
+                  Log.printStackTrace(t);
                 }
                 Log.println("closing wait dialog");
                 wait.setVisible(false);
@@ -220,11 +230,30 @@ public class UIAssetTree extends JPanel {
                   save();
                   Log.println("saved");
                 } catch (Throwable t) {
-                  t.printStackTrace();
+                  Log.printStackTrace(t);
                 }
                 Log.println("closing wait dialog");
                 wait.setVisible(false);
                 wait.dispose();
+              }
+            }).start();
+          }
+        });
+      }
+    }));
+    butPanel.add(new JButton(new AbstractAction("Import") {
+      public void actionPerformed(ActionEvent e) {
+        File f = UIUtil.selectFile(owner, "Choose image to import", "OK", true, false);
+        if (f == null) return;
+        SwingUtilities.invokeLater(new Runnable() {
+          public void run() {
+            new Thread(new Runnable() {
+              public void run() {
+                try {
+                  importImage(f);
+                } catch (Throwable t) {
+                  Log.printStackTrace(t);
+                }
               }
             }).start();
           }
@@ -246,6 +275,15 @@ public class UIAssetTree extends JPanel {
         updateFilter(root);
       }
     });
+    filter.getInputMap().put(KeyStroke.getKeyStroke("F12"),
+        "toggleDebug");
+    filter.getActionMap().put("toggleDebug",
+        new AbstractAction() {
+          @Override
+          public void actionPerformed(ActionEvent e) {
+            debug.setVisible(!debug.isVisible());
+            UIAssetTree.this.getParent().revalidate();
+          }});
   }
 
   class AssetCellRenderer extends DefaultTreeCellRenderer {
@@ -385,5 +423,14 @@ public class UIAssetTree extends JPanel {
     public boolean isVisible() {
       return isVisible;
     }
+  }
+
+  UserCallback cb = null;
+  public void setUserCallback(UserCallback userCallback) {
+    cb = userCallback;
+  }
+  
+  public interface UserCallback {
+    void importImage(Image i);
   }
 }
