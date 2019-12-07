@@ -109,7 +109,10 @@ public class UIAssetTree extends JPanel {
   
   void traverseSave(InvisibleNode n) {
     Asset a = (Asset)n.getUserObject();
-    if (a.isModified()) a.save();
+    if (a.isModified()) {
+      Log.println("saving " + a.getName());
+      a.save();
+    }
     for (int i = 0; i < n.getChildCount(); i++) {
       traverseSave((InvisibleNode)n.getChildAt(i));
     }
@@ -226,11 +229,12 @@ public class UIAssetTree extends JPanel {
           public void run() {
             new Thread(new Runnable() {
               public void run() {
-                Log.println("saving");
+                Log.println("saving all");
                 try {
                   save();
-                  Log.println("saved");
+                  Log.println("saved all successfully");
                 } catch (Throwable t) {
+                  Log.println("saving failed " + t.getMessage());
                   Log.printStackTrace(t);
                 }
                 Log.println("closing wait dialog");

@@ -68,6 +68,7 @@ public class Assets {
     env.put("create", "true");
     fs = FileSystems.newFileSystem(uri, env);
     traverseRefresh(root);
+    Log.println("syncing complete");
   }
   
   void traverseRefresh(Asset a) {
