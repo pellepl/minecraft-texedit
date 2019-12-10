@@ -11,7 +11,7 @@ import javax.swing.*;
 import com.pelleplutt.util.Log;
 
 public class ProceduralNemesis extends JPanel {
-  static boolean DBGPHYS = true;
+  static boolean DBGPHYS = false;
   static final int LOOP_DELAY_MS = 20;
   static final float COLLISION_MIN_PENE = 0.1f;
   static final int WIDTH = 600;
@@ -103,6 +103,7 @@ public class ProceduralNemesis extends JPanel {
       thing = new Thing();
       thing.move(200, 100);
       sprites.add(thing);
+      keyStatus[KEY_ESC] = false;
     }
     if (diag) {
       pdx *= 0.7071f; // 1/sqrt(2);
@@ -160,6 +161,8 @@ public class ProceduralNemesis extends JPanel {
         for (int j = i + 1; j < spriteCount; j++) {
           Sprite stest = sprites.get(j);
           if (stest.shape == null) continue;
+          if ((sref.shape.collisionGroups & stest.shape.collisionFilters) +
+              (sref.shape.collisionFilters & stest.shape.collisionGroups) != 0) continue;
           float pene = Collider.collides(sref, stest, phyMTVref, phyMTVtest, phyMTV, phyColl);
           if (pene > 0) {
             haveCollisions = true;
@@ -322,7 +325,7 @@ public class ProceduralNemesis extends JPanel {
       if (DBGPHYS) paintShapeVerlet(g, 0, 0);
       //paintShapeNormals(g, 0, 0);
       g.setColor(Color.gray);
-      if (DBGPHYS) paintShape(g, oobShape);
+      /*if (DBGPHYS)*/ paintShape(g, oobShape);
     }
     public void update() { 
       if (life > 0) {
@@ -427,8 +430,8 @@ public class ProceduralNemesis extends JPanel {
 
     static void precalcVelocityOOB(Sprite spr) {
       Shape s = spr.shape;
-      float speedFact = 10; //s.vstick.speedSq() * (s.vstick.idist * s.vstick.idist); 
-      if (speedFact > 0.125f) {
+      float speedFactSq = s.vstick.speedSq() * (s.vstick.idist * s.vstick.idist); 
+      if (speedFactSq > 0.125f) {
         calcVelocityOOB(s, spr.oobShape);
       }
     }
@@ -489,13 +492,15 @@ public class ProceduralNemesis extends JPanel {
         if (pv < minPV) minPV = pv;
         if (pv > maxPV) maxPV = pv;
       }
+      minV = Math.min(minV, 0);
+      minPV = Math.min(minPV, 0);
 
       // oob_left/right length = (maxV-minV) + velocity
       // oob_top/bottom length = (maxPV-minPV)
       float vminx  = minV  * velN.x;
       float vminy  = minV  * velN.y;
-      float vmaxx  = maxV  * (velN.x + vel.x);
-      float vmaxy  = maxV  * (velN.y + vel.y);
+      float vmaxx  = maxV  * velN.x + vel.x;
+      float vmaxy  = maxV  * velN.y + vel.y;
       float pvminx = minPV * velPN.x;
       float pvminy = minPV * velPN.y;
       float pvmaxx = maxPV * velPN.x;
@@ -524,6 +529,7 @@ public class ProceduralNemesis extends JPanel {
       if (pene1 == 0) return 0;
       pene2 = sat(s2, s1, mtv2, es2, ee2);
       if (pene2 == 0) return 0;
+
       mtv2.neg();
       if (pene1 < pene2) {
         s2.findNearestVertex(es1, ee1, mtv1, nearestVertex);
@@ -733,6 +739,9 @@ public class ProceduralNemesis extends JPanel {
     List<Vec2f> defVert = new ArrayList<Vec2f>();
     List<Vec2f> vert = new ArrayList<Vec2f>();
     VStick vstick;
+    
+    long collisionGroups = 0;   // bitmask, each bit represents one group
+    long collisionFilters = 0;  // bitmask, collisions where a filter bit matches colliders group bit are ignored
     
     public Shape() {}
     public Shape(int vertices) { for (int i = 0;i  < vertices; i++) vert.add(new Vec2f());}
