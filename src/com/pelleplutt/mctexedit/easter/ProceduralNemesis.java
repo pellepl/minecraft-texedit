@@ -45,6 +45,7 @@ public class ProceduralNemesis extends JPanel {
   BufferedImage screen = new BufferedImage(WIDTH, HEIGHT, BufferedImage.TYPE_INT_ARGB); 
   boolean debugMode = false;
   boolean debugStep = false;
+  int loopNbr = 0;
 
   public ProceduralNemesis() {
     player = new Player();
@@ -173,10 +174,11 @@ public class ProceduralNemesis extends JPanel {
 
     if (keyStatus[KEY_9]) {
       debugMode = !debugMode;
-      Log.println("debugmode " + (debugMode ? "ON" : "OFF"));
+      Log.println("..............................  DEBUGMODE " + (debugMode ? "ON" : "OFF"));
       keyStatus[KEY_9] = false;
     }
     if (keyStatus[KEY_0]) {
+      Log.println("..............................  DEBUG LOOP " + loopNbr);
       debugStep = true;
       keyStatus[KEY_0] = false;
     }
@@ -218,6 +220,7 @@ public class ProceduralNemesis extends JPanel {
   public void loop() {
     updateInteractions();
     if (debugMode && !debugStep) return;
+    loopNbr++;
     debugStep = false;
 
     angleConstraint(player.shape.vstick, 0f, 0.025f);
@@ -257,7 +260,7 @@ public class ProceduralNemesis extends JPanel {
             haveCollisions = true;
 
             if (debugMode) {
-              Log.println(String.format("[%d] collision obj:%d[%+.1f,%+.1f]%s / %d[%+.1f,%+.1f]%s   collXY:%+.1f,%+.1f   pen:%+.1f  mtv:%+.1f,%+.1f;len:%.1f",
+              Log.println(String.format("LOOP [coll it %d] collision obj:%d[%+.1f,%+.1f]%s / %d[%+.1f,%+.1f]%s   collXY:%+.1f,%+.1f   pen:%+.1f  mtv:%+.1f,%+.1f;len:%.1f",
                   maxIterations,
                   sprA.id, sprA.shape.vstick.x, sprA.shape.vstick.y, sprA.highVelocity ? "(HV)": "    ",
                   sprB.id, sprB.shape.vstick.x, sprB.shape.vstick.y, sprB.highVelocity ? "(HV)": "    ",
@@ -272,8 +275,10 @@ public class ProceduralNemesis extends JPanel {
               dbgMark(Color.blue, sprB.shape.vstick,  10, null);
             }
             
-            sprA.shape.impulse(phyColl, phyMTV, -1f);
-            sprB.shape.impulse(phyColl, phyMTV, 1f);
+            float inviMassSum = 1f; // TODO PETER1f/(sprA.imass + sprB.imass);
+
+            sprA.shape.impulse(phyColl, phyMTV, -sprB.imass * inviMassSum);
+            sprB.shape.impulse(phyColl, phyMTV, sprA.imass * inviMassSum);
             stickConstraint(sprA.shape.vstick, 1f);
             stickConstraint(sprB.shape.vstick, 1f);
             sprA.shape.shapify();
@@ -288,6 +293,7 @@ public class ProceduralNemesis extends JPanel {
       }
     } // while maxIterations
   }
+  
   
   @Override
   public void paint(Graphics g) {
@@ -328,10 +334,10 @@ public class ProceduralNemesis extends JPanel {
   class Thing extends Sprite {
     public Thing() {
       shape = new Shape();
-      shape.addVertex(new Vec2f( 80,  40));
-      shape.addVertex(new Vec2f( 80, -40));
-      shape.addVertex(new Vec2f(  0, -40));
-      shape.addVertex(new Vec2f(  0,  40));
+      shape.addVertex(new Vec2f( 76,  40));
+      shape.addVertex(new Vec2f( 80, -32));
+      shape.addVertex(new Vec2f(  10, -40));
+      shape.addVertex(new Vec2f(  0,  22));
       shape.solidify(80);
     }
     @Override
@@ -431,6 +437,7 @@ public class ProceduralNemesis extends JPanel {
     int id = _gid++;
     int life;
     boolean gone = false;
+    float imass = 1f;
     Shape shape;
     Shape oobShape = new Shape(4);
     boolean highVelocity = false;
@@ -692,79 +699,111 @@ public class ProceduralNemesis extends JPanel {
       Vec2f ee2 = vectors[vix++]; 
       float pene1, pene2;
       Vec2f frontVertex;
-
+      boolean collHV1 = false;
+      boolean collHV2 = false;
+      Vec2f origV1 = vectors[vix++]; 
+      Vec2f origV1O = vectors[vix++]; 
+      Vec2f origV2 = vectors[vix++]; 
+      Vec2f origV2O = vectors[vix++]; 
+      
       if (spr1.highVelocity) {
-        if (debugMode) Log.println(String.format("sat %d spr1 HV", spr1.id));
+        if (debugMode) Log.println(String.format("sat [HV] spr1 %d", spr1.id));
         float peneHighVel = sat(spr1.oobShape, s2, null, mtv1, es1, ee1);
         if (peneHighVel == 0) {
-          if (debugMode) Log.println(String.format("    %d [HV] / %d no sat", spr1.id, spr2.id));
+          if (debugMode) Log.println(String.format("    [HV] %d / %d no sat", spr1.id, spr2.id));
           return 0;
         }
         peneHighVel = sat(s2, spr1.oobShape, spr1.vel, mtv1, es1, ee1);
         if (peneHighVel != 0) {
           frontVertex = s1.findFarthestVertexInDirection(spr1.vel);
           float t = collider.getTrajectoryEdgeCrossing(frontVertex, spr1.vel, es1, ee1);
-          if (t != Float.NaN) {
+          if (t < 0) {
+            // TODO Should not happen
+            Log.println(String.format("    [HV] spr1 %d trajectory fail %f, vel %+.1f,%+.1f", spr1.id, t, spr1.vel.x, spr1.vel.y));
+          }
+          if (!Float.isNaN(t)) {
+            collHV1 = true;
+            s1.vstick.v1.assign(origV1);
+            s1.vstick.v1.assignOld(origV1O);
+            s1.vstick.v2.assign(origV2);
+            s1.vstick.v2.assignOld(origV2O);
+            Vec2f velNorm = spr1.vel.norm(vectors[vix++]);
             s1.vstick.moveStatic(spr1.vel.x * t, spr1.vel.y * t);
-            s1.vstick.rest();
-            s1.shapify();
-            collision.set(frontVertex.x + spr1.vel.x * t, frontVertex.y + spr1.vel.y * t);
-            mtv1.assign(mtv).norm().mul(2); // TODO PETER
-            if (debugMode) Log.println(String.format("collision: spr1 HV pen:%+.1f", peneHighVel));
-            return 1.0f; //peneHighVel;
+            s1.vstick.moveStatic(velNorm.x * spr1.shape.vstick.dist * 0.5f, velNorm.y * spr1.shape.vstick.dist * 0.5f);
+            if (debugMode) Log.println(String.format("    [HV] COLLISION: spr1 pen:%+.1f, t:%+.1f, sprite translation xy:%+.1f,%+.1f", 
+                peneHighVel, t, spr1.vel.x * t, spr1.vel.y * t));
           } else {
             if (debugMode) {
-              Log.println(String.format("    %d trajectory fail %f, vel %+.1f,%+.1f", spr1.id, t, spr1.vel.x, spr1.vel.y));
+              Log.println(String.format("    [HV] spr1 %d trajectory fail %f, vel %+.1f,%+.1f", spr1.id, t, spr1.vel.x, spr1.vel.y));
               dbgLine(Color.magenta, frontVertex, spr1.vel.assign(new Vec2f()).add(frontVertex));
               dbgLine(Color.blue, es1, ee1);
               collision.set(frontVertex.x + spr1.vel.x * t, frontVertex.y + spr1.vel.y * t);
               dbgMark(Color.red, collision);
             }
           }
-          return 0;
         } else {
           if (debugMode) {
-            Log.println(String.format("    %d / %d [HV] no sat", spr2.id, spr1.id));
+            Log.println(String.format("    [HV] %d / %d NO SAT", spr2.id, spr1.id));
+            return 0;
           }
         }
+        
       } else if (spr2.highVelocity) {
-        if (debugMode) Log.println(String.format("sat %d spr2 HV", spr2.id));
+        if (debugMode) Log.println(String.format("sat [HV] spr2 %d", spr2.id));
         float peneHighVel = sat(spr2.oobShape, s1, null, mtv2, es2, ee2);
         if (peneHighVel == 0) {
-          if (debugMode) Log.println(String.format("    %d [HV] / %d no sat", spr2.id, spr1.id));
+          if (debugMode) Log.println(String.format("    [HV] %d / %d NO SAT", spr2.id, spr1.id));
           return 0;
         }
         peneHighVel = sat(s1, spr2.oobShape, spr2.vel, mtv2, es2, ee2);
         if (peneHighVel != 0) {
           frontVertex = s2.findFarthestVertexInDirection(spr2.vel);
           float t = collider.getTrajectoryEdgeCrossing(frontVertex, spr2.vel, es2, ee2);
-          if (t != Float.NaN) {
+          if (t < 0) {
+            // TODO Should not happen
+            Log.println(String.format("    [HV] spr1 %d trajectory fail %f, vel %+.1f,%+.1f", spr2.id, t, spr2.vel.x, spr2.vel.y));
+          }
+          if (!Float.isNaN(t)) {
+            collHV2 = true;
+            s2.vstick.v1.assign(origV1);
+            s2.vstick.v1.assignOld(origV1O);
+            s2.vstick.v2.assign(origV2);
+            s2.vstick.v2.assignOld(origV2O);
+            Vec2f velNorm = spr2.vel.norm(vectors[vix++]);
             s2.vstick.moveStatic(spr2.vel.x * t, spr2.vel.y * t);
-            s2.vstick.rest();
-            s2.shapify();
-            collision.set(frontVertex.x + spr2.vel.x * t, frontVertex.y + spr2.vel.y * t);
-            mtv2.assign(mtv).norm().mul(2); // TODO PETER
-            if (debugMode) Log.println(String.format("collision: spr2 HV pen:%+.1f", peneHighVel));
-            return 1.0f; //peneHighVel;
+            s2.vstick.moveStatic(velNorm.x * s2.vstick.dist * 0.5f, velNorm.y * s2.vstick.dist * 0.5f);
+            if (debugMode) Log.println(String.format("    [HV] COLLISION: spr2 pen:%+.1f, t:%+.1f, sprite translation xy:%+.1f,%+.1f", 
+                peneHighVel, t, spr2.vel.x * t, spr2.vel.y * t));
           } else {
             if (debugMode) {
-              Log.println(String.format("    %d trajectory fail %f, vel %+.1f,%+.1f", spr2.id, t, spr2.vel.x, spr2.vel.y));
+              Log.println(String.format("    [HV] spr2 %d trajectory fail %f, vel %+.1f,%+.1f", spr2.id, t, spr2.vel.x, spr2.vel.y));
               dbgLine(Color.magenta, frontVertex, spr2.vel.assign(new Vec2f()).add(frontVertex));
               dbgLine(Color.blue, es2, ee2);
               collision.set(frontVertex.x + spr2.vel.x * t, frontVertex.y + spr2.vel.y * t);
               dbgMark(Color.red, collision);
             }
           }
-          return 0;
         } else {
-          if (debugMode) Log.println(String.format("    %d / %d [HV] no sat", spr1.id, spr2.id));
+          if (debugMode) Log.println(String.format("    [HV] %d / %d NO SAT", spr1.id, spr2.id));
+          return 0;
         }
       }
 
       pene1 = sat(s1, s2, null, mtv1, es1, ee1);
-      if (pene1 == 0) return 0;
+      if (pene1 == 0) {
+        // If any highvel collision as registered but no stationary sat found anything, restore state
+        if (collHV1) s1.vstick.restore(origV1, origV1O, origV2, origV2O);
+        if (collHV2) s2.vstick.restore(origV1, origV1O, origV2, origV2O);
+        return 0;
+      }
       pene2 = sat(s2, s1, null, mtv2, es2, ee2);
-      if (pene2 == 0) return 0;
+      if (pene2 == 0) {
+        // If any highvel collision as registered but no stationary sat found anything, restore state
+        if (collHV1) s1.vstick.restore(origV1, origV1O, origV2, origV2O);
+        if (collHV2) s2.vstick.restore(origV1, origV1O, origV2, origV2O);
+        return 0;
+      }
+      if (debugMode) Log.println(String.format("sat %d / %d found (pene1:%+.1f, pene2:%+.1f)", spr1.id, spr2.id, pene1, pene2));
 
       mtv1.neg();
       mtv2.neg();
@@ -795,7 +834,6 @@ public class ProceduralNemesis extends JPanel {
 
     float sat(Shape sref, Shape sother, Vec2f otherVelHint, Vec2f mtv, Vec2f collEdgeS, Vec2f collEdgeE) {
       float minOverlap = Float.MAX_VALUE;
-      float minDot = Float.MAX_VALUE;
       final int srefVertices = sref.countVertices();
       Vec2f edgeS = vectors[vix++];
       Vec2f edgeE = vectors[vix++];
@@ -817,8 +855,8 @@ public class ProceduralNemesis extends JPanel {
         // else
         //   dbgLine(Color.red, sother.getCenter(new Vec2f()), sother.getCenter(new Vec2f()).add(dirOther), srefVertices, "dir");
       }
+
       for (int i = 0; i < srefVertices; i++) {
-        // if the edge has a normal pointing away from other object, it cannot collide 
         sref.getEdgeVertices(i, edgeS, edgeE);
         if (debugMode) dbgLine(Color.white, edgeS, edgeE, 1, "e" + i);
         edge = edgeE.sub(edgeS, edge);
@@ -832,20 +870,22 @@ public class ProceduralNemesis extends JPanel {
           return 0;
         }
         if (sref.vstick != null && overlap > sref.vstick.dist) {
-          // TODO figure out why this happen
+          // TODO figure out why this happen, surely it is because of containment?
           Log.println("overlap exceed sticklen " + overlap + " > " + sref.vstick.dist + ": collision ignored");
           return 0; // returning 0 here makes things a lot more robust
         }
+        
+        // TODO PETER come up with something better for finding edge
         float dot = axis.dot(otherVelHint == null ? dirOther : otherVelHint); 
-        if (dot < minDot) {
-          minDot = dot;
-          edgeS.assign(collEdgeS);
-          edgeE.assign(collEdgeE);
-        }
         if (debugMode) Log.println(String.format("        edge %d overlaps by %+.1f", i, overlap));
-        if (overlap < minOverlap) {
+        if ((int)(overlap * 100) <= (int)(minOverlap * 100)) { // allow some numeric difference
           axis.assign(mtv);
           minOverlap = overlap;
+          if (dot < 0) {
+            // if the edge has a normal pointing away from other object, it cannot collide 
+            edgeS.assign(collEdgeS);
+            edgeE.assign(collEdgeE);
+          }
         }
       }
       if (debugMode) {
@@ -903,6 +943,11 @@ public class ProceduralNemesis extends JPanel {
       float dy = y - oy;
       return dx*dx+dy*dy;
     }
+    public Vec2f assignOld(Vec2f dst) {
+      dst.x = ox;
+      dst.y = oy;
+      return dst;
+    }
   } // class VPoint
 
   class VStick extends Vec2f {
@@ -922,6 +967,16 @@ public class ProceduralNemesis extends JPanel {
       this.idist = 1f/dist;
       this.distDSq2 = dist * 0.7071f;
     }
+    public void restore(Vec2f origV1, Vec2f origV1O, Vec2f origV2, Vec2f origV2O) {
+      v1.x = origV1.x;
+      v1.y = origV1.y;
+      v1.ox = origV1O.x;
+      v1.oy = origV1O.y;
+      v2.x = origV2.x;
+      v2.y = origV2.y;
+      v2.ox = origV2O.x;
+      v2.oy = origV2O.y;
+    }
     public void setInverseFriction(float f) {
       v1.ifriction = v2.ifriction = f;
     }
@@ -932,16 +987,16 @@ public class ProceduralNemesis extends JPanel {
     }
     public void rest() {
       v1.rest(); v2.rest();
-      this.x = this.ox = 0.5f*(v1.x + v2.x);
-      this.y = this.oy = 0.5f*(v1.y + v2.y);
+      updateCenter();
+      ox = this.x;
+      oy = this.y;
     }
     public void update(float dt) {
       v1.update(dt);
       v2.update(dt);
       ox = this.x;
       oy = this.y;
-      this.x = 0.5f*(v1.x + v2.x);
-      this.y = 0.5f*(v1.y + v2.y);
+      updateCenter();
     }
   public void updateCenter() {
     x = 0.5f*(v1.x + v2.x); 
@@ -1092,16 +1147,16 @@ public class ProceduralNemesis extends JPanel {
     public void impulse(Vec2f collision, Vec2f movement, float factor) {
       vstick.impulse(collision, movement, factor);
       // TODO PETER. testing, help the impulse a wee bit
-      float mx = movement.x*factor*0.5f;
-      float my = movement.y*factor*0.5f;
-      vstick.v1.x += mx;
-      vstick.v1.y += my;
-      vstick.v2.x += mx;
-      vstick.v2.y += my;
-      vstick.v1.ox += mx;
-      vstick.v1.oy += my;
-      vstick.v2.ox += mx;
-      vstick.v2.oy += my;
+//      float mx = movement.x*factor*0.5f;
+//      float my = movement.y*factor*0.5f;
+//      vstick.v1.x += mx;
+//      vstick.v1.y += my;
+//      vstick.v2.x += mx;
+//      vstick.v2.y += my;
+//      vstick.v1.ox += mx;
+//      vstick.v1.oy += my;
+//      vstick.v2.ox += mx;
+//      vstick.v2.oy += my;
     }
     
     public Projection project(Vec2f axis, Projection dst) {
