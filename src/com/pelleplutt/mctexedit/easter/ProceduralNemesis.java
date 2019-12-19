@@ -11,7 +11,6 @@ import javax.swing.*;
 import com.pelleplutt.util.*;
 
 public class ProceduralNemesis extends JPanel {
-  static boolean DBGPHYS = false;
   static final int LOOP_DELAY_MS = 20;
   static final float COLLISION_MIN_PENE = 0.01f;
   static final int WIDTH = 800;
@@ -49,9 +48,8 @@ public class ProceduralNemesis extends JPanel {
   boolean debugShow = false;
   boolean debugStep = false;
   int loopNbr = 0;
-
-  public ProceduralNemesis() {
-    Log.log = false;
+  
+  void setupScene() {
     player = new Player();
     player.moveStatic(32, 100);
     sprites.add(player);
@@ -62,6 +60,32 @@ public class ProceduralNemesis extends JPanel {
     Sprite enemy = new EnemyFighter();
     enemy.moveStatic(400,300);
     sprites.add(enemy);
+    for (int i = 0; i < 3; i++) {
+      Thing2 t = new Thing2();
+      t.moveStatic(100 + i*20, 160);
+      sprites.add(t);
+    }
+    for (int i = 0; i < 3; i++) {
+      Thing2 t = new Thing2();
+      t.moveStatic(100 + i*20, 180);
+      sprites.add(t);
+    }
+    for (int i = 0; i < 3; i++) {
+      Thing2 t = new Thing2();
+      t.moveStatic(100 + i*20, 200);
+      sprites.add(t);
+    }
+    for (int i = 0; i < 5; i++) {
+      Thing3 t = new Thing3();
+      t.moveStatic(200, 220 + i * 20);
+      sprites.add(t);
+    }
+  }
+
+  public ProceduralNemesis() {
+    Log.log = false;
+
+    setupScene();
     
     registerKey("W", KEY_UP);
     registerKey("S", KEY_DOWN);
@@ -156,11 +180,8 @@ public class ProceduralNemesis extends JPanel {
     
     if (keyStatus[KEY_ESC]) {
       Log.println("---------------------------");
-      thing.life = 1;
-      thing = new Thing();
-      thing.moveStatic(200, 100);
-      thing.rotateStatic(THING_DEF_ROT);
-      sprites.add(thing);
+      sprites.clear();
+      setupScene();
       keyStatus[KEY_ESC] = false;
     }
     if (keyStatus[KEY_1]) {
@@ -398,6 +419,40 @@ public class ProceduralNemesis extends JPanel {
       super.paint(g);
     }
   }
+  class Thing2 extends Sprite {
+    public Thing2() {
+      shape = new Shape();
+      shape.addVertex(new Vec2f( 16,  0));
+      shape.addVertex(new Vec2f( 12,  -8));
+      shape.addVertex(new Vec2f( 4,  -8));
+      shape.addVertex(new Vec2f( 0,  0));
+      shape.addVertex(new Vec2f( 4,  8));
+      shape.addVertex(new Vec2f( 12,  8));
+      shape.solidify(16);
+    }
+    @Override
+    public void paint(Graphics2D g) {
+      g.setColor(Color.magenta);
+      super.paint(g);
+    }
+  }
+  class Thing3 extends Sprite {
+    public Thing3() {
+      shape = new Shape();
+      shape.addVertex(new Vec2f( 90,  0));
+      shape.addVertex(new Vec2f( 88,  -2));
+      shape.addVertex(new Vec2f( 2,  -2));
+      shape.addVertex(new Vec2f( 0,  0));
+      shape.addVertex(new Vec2f( 2,  2));
+      shape.addVertex(new Vec2f( 88,  2));
+      shape.solidify(90);
+    }
+    @Override
+    public void paint(Graphics2D g) {
+      g.setColor(Color.orange);
+      super.paint(g);
+    }
+  }
   class EnemyFighter extends Sprite {
     public EnemyFighter() {
       shape = new Shape();
@@ -499,7 +554,7 @@ public class ProceduralNemesis extends JPanel {
     final Color colTrans = new Color(0,0,0,0);
     public void paint(Graphics2D g) {
       paintShape(g);
-      if (DBGPHYS) paintShapeVerlet(g, 0, 0);
+      //paintShapeVerlet(g, 0, 0);
       //paintShapeNormals(g, shape, 0, 0);
       g.setColor(Color.gray);
       if (debugShow) paintShape(g, oobShape);
@@ -567,7 +622,7 @@ public class ProceduralNemesis extends JPanel {
     }
     public Object clone() throws CloneNotSupportedException {
       Sprite clone = (Sprite)super.clone();
-      clone.shape = (Shape)shape.clone();
+      if (shape != null) clone.shape = (Shape)shape.clone();
       clone.oobShape= (Shape)oobShape.clone();
       clone.vel = (Vec2f)vel.clone();
       clone.velN = (Vec2f)velN.clone();
@@ -889,7 +944,7 @@ public class ProceduralNemesis extends JPanel {
               peneHighVel, t, sprHV.vel.x * t, sprHV.vel.y * t, sprHV.shape.verlet.x, sprHV.shape.verlet.y);
         } else {
           if (debugShow) {
-            Log.printf("    [HV] spr %d trajectory fail %f, vel %+.1f,%+.1f", sprHV.id, t, sprHV.vel.x, sprHV.vel.y);
+            Log.printf("    [HV] spr %d trajectory fail vel %+.1f,%+.1f", sprHV.id, sprHV.vel.x, sprHV.vel.y);
             dbgLine(Color.magenta, frontVertex, sprHV.vel.assign(new Vec2f()).add(frontVertex));
             dbgLine(Color.blue, es, ee);
           }
@@ -929,7 +984,7 @@ public class ProceduralNemesis extends JPanel {
           Log.printf("        edge %d no coll, projection gap found %f", i, overlap);
           return 0;
         }
-        if (sref.verlet != null && overlap > sref.verlet.size) {
+        if (sref.verlet != null && overlap > sref.verlet.size * 1.5f) {
           // TODO figure out why this happen, surely it is because of containment?
           Log.println("overlap exceed verlet size " + overlap + " > " + sref.verlet.size + ": collision ignored");
           return 0; // returning 0 here makes things a lot more robust
