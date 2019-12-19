@@ -14,11 +14,11 @@ public class ProceduralNemesis extends JPanel {
   static boolean DBGPHYS = false;
   static final int LOOP_DELAY_MS = 20;
   static final float COLLISION_MIN_PENE = 0.01f;
-  static final int WIDTH = 600;
-  static final int HEIGHT = 400;
+  static final int WIDTH = 800;
+  static final int HEIGHT = 600;
   static final int ITERATIONS = 5;
   static final float THING_DEF_ROT = 3.137328f;//3.14f*1.35f;
-  static final float NEAR_ZERO = 0.0001f;
+  static final float NEAR_ZERO = 0.001f;
   
   static final int KEY_UP = 0;
   static final int KEY_DOWN = 1;
@@ -43,6 +43,7 @@ public class ProceduralNemesis extends JPanel {
   Thing thing; // TODO remove
   java.util.List<Sprite> sprites = new ArrayList<Sprite>();
   java.util.List<Sprite> deadSprites = new ArrayList<Sprite>();
+  ArrayList<Sprite> clonedSprites;
   BufferedImage screen = new BufferedImage(WIDTH, HEIGHT, BufferedImage.TYPE_INT_ARGB); 
   boolean debugMode = false;
   boolean debugShow = false;
@@ -50,6 +51,7 @@ public class ProceduralNemesis extends JPanel {
   int loopNbr = 0;
 
   public ProceduralNemesis() {
+    Log.log = false;
     player = new Player();
     player.moveStatic(32, 100);
     sprites.add(player);
@@ -122,10 +124,10 @@ public class ProceduralNemesis extends JPanel {
   static final float PLAYER_STEP = 4;
   int fireCoolOff = 0;
   void updateInteractions() {
-    float dx = player.shape.vstick.v2.x -player.shape.vstick.v1.x; 
-    float dy = player.shape.vstick.v2.y -player.shape.vstick.v1.y;
-    dx *= PLAYER_STEP * player.shape.vstick.idist;
-    dy *= PLAYER_STEP * player.shape.vstick.idist;
+    float dx = player.shape.verlet.v2.x -player.shape.verlet.v1.x; 
+    float dy = player.shape.verlet.v2.y -player.shape.verlet.v1.y;
+    dx *= PLAYER_STEP * player.shape.verlet.isize;
+    dy *= PLAYER_STEP * player.shape.verlet.isize;
     
     float pdx = 0;
     float pdy = 0;
@@ -169,11 +171,27 @@ public class ProceduralNemesis extends JPanel {
     }
     if (keyStatus[KEY_3]) {
       thing.push(
-          0.15f*(player.shape.vstick.x - thing.shape.vstick.x), 
-          0.15f*(player.shape.vstick.y - thing.shape.vstick.y));
+          0.15f*(player.shape.verlet.x - thing.shape.verlet.x), 
+          0.15f*(player.shape.verlet.y - thing.shape.verlet.y));
       keyStatus[KEY_3] = false;
     }
 
+    if (keyStatus[KEY_7]) {
+      Log.println("..............................  TIMEWARP");
+      sprites.clear();
+      for (Sprite s : clonedSprites) {
+        try {
+          Sprite cs = (Sprite)s.clone();
+          sprites.add(cs);
+          if (cs instanceof Player) player = (Player)cs;
+          if (cs instanceof Thing) thing = (Thing)cs;
+        } catch (CloneNotSupportedException e) {
+          // TODO Auto-generated catch block
+          e.printStackTrace();
+        }
+      }
+      keyStatus[KEY_7] = false;
+    }
     if (keyStatus[KEY_8]) {
       debugShow = !debugShow;
       Log.log = debugShow;
@@ -205,18 +223,27 @@ public class ProceduralNemesis extends JPanel {
   
   void playerFire(int dx, int dy) {
     Shot shot = new Shot();
-    float sdx = (player.shape.vstick.v2.x - player.shape.vstick.v1.x)*player.shape.vstick.idist;
-    float sdy = (player.shape.vstick.v2.y - player.shape.vstick.v1.y)*player.shape.vstick.idist;
+    float sdx = (player.shape.verlet.v2.x - player.shape.verlet.v1.x)*player.shape.verlet.isize;
+    float sdy = (player.shape.verlet.v2.y - player.shape.verlet.v1.y)*player.shape.verlet.isize;
     shot.moveStatic(
-        player.shape.vstick.v1.x + sdx*(player.shape.vstick.dist + shot.shape.vstick.dist),
-        player.shape.vstick.v1.y + sdy*(player.shape.vstick.dist + shot.shape.vstick.dist));
+        player.shape.verlet.v1.x + sdx*(player.shape.verlet.size + shot.shape.verlet.size),
+        player.shape.verlet.v1.y + sdy*(player.shape.verlet.size + shot.shape.verlet.size));
     shot.rotateStatic(player.shape.angle());
     shot.push(sdx*16f, sdy*16f);
     shot.life = 40;
-    shot.shape.vstick.setInverseFriction(0.975f);
+    shot.shape.verlet.setInverseFriction(0.975f);
     shot.shape.collisionGroups = (1<<0);
     shot.shape.collisionFilters = (1<<0);
     sprites.add(shot);
+    
+    clonedSprites = new ArrayList<Sprite>();
+    for (Sprite s : sprites) {
+      try {
+        clonedSprites.add((Sprite)s.clone());
+      } catch (CloneNotSupportedException e) {
+        e.printStackTrace();
+      }
+    }
   }
 
   //////////////
@@ -249,13 +276,13 @@ public class ProceduralNemesis extends JPanel {
     }
 
     if (!debugMode || iteration == ITERATIONS) {
-      angleConstraint(player.shape.vstick, 0f, 0.025f);
+      angleConstraint(player.shape.verlet, 0f, 0.025f);
       for (Sprite sprite : sprites) {
-        if (sprite.shape == null) {
+        if (sprite.shape == null || sprite.shape.isResting()) {
           continue;
         }
-        stickConstraint(sprite.shape.vstick, 1f);
-        sprite.shape.vstick.update(1f);
+        stickConstraint(sprite.shape.verlet, 1f);
+        sprite.shape.update(1f);
         sprite.shape.shapify();
         collider.precalcVelocityOOB(sprite);
       }
@@ -276,36 +303,30 @@ public class ProceduralNemesis extends JPanel {
           float pene = collider.collides(sprA, sprB, phyMTVA, phyMTVB, phyMTV, phyColl);
           if (pene > 0) {
             haveCollisions = true;
+            Log.printf("[resolv %d]  precollision obj:%d[%+.1f,%+.1f]%s / %d[%+.1f,%+.1f]%s   collXY:%+.1f,%+.1f   pen:%+.1f  mtv:%+.1f,%+.1f;len:%.1f",
+                iteration,
+                sprA.id, sprA.shape.verlet.x, sprA.shape.verlet.y, sprA.highVelocity ? "(HV)": "    ",
+                sprB.id, sprB.shape.verlet.x, sprB.shape.verlet.y, sprB.highVelocity ? "(HV)": "    ",
+                phyColl.x,phyColl.y,
+                pene,
+                phyMTV.x,phyMTV.y,phyMTV.len()
+            );
             if (debugShow) {
-              Log.printf("[resolv %d]  precollision obj:%d[%+.1f,%+.1f]%s / %d[%+.1f,%+.1f]%s   collXY:%+.1f,%+.1f   pen:%+.1f  mtv:%+.1f,%+.1f;len:%.1f",
-                  iteration,
-                  sprA.id, sprA.shape.vstick.x, sprA.shape.vstick.y, sprA.highVelocity ? "(HV)": "    ",
-                  sprB.id, sprB.shape.vstick.x, sprB.shape.vstick.y, sprB.highVelocity ? "(HV)": "    ",
-                  phyColl.x,phyColl.y,
-                  pene,
-                  phyMTV.x,phyMTV.y,phyMTV.len()
-              );
               dbgMark(Color.white, phyColl, 10, null);
-              dbgLine(Color.red, sprA.shape.vstick, phyMTV.assign(new Vec2f()).mul(-5f).add(sprA.shape.vstick), 10, null);
-              dbgMark(Color.red, sprA.shape.vstick,  10, null);
-              dbgLine(Color.blue, sprB.shape.vstick, phyMTV.assign(new Vec2f()).mul(5f).add(sprB.shape.vstick), 10, null);
-              dbgMark(Color.blue, sprB.shape.vstick,  10, null);
+              dbgLine(Color.red, sprA.getVec(), phyMTV.assign(new Vec2f()).mul(-5f).add(sprA.getVec()), 10, null);
+              dbgMark(Color.red, sprA.getVec(),  10, null);
+              dbgLine(Color.blue, sprB.getVec(), phyMTV.assign(new Vec2f()).mul(5f).add(sprB.getVec()), 10, null);
+              dbgMark(Color.blue, sprB.getVec(),  10, null);
             }
             
             float inviMassSum = 1f; // TODO PETER1f/(sprA.imass + sprB.imass);
 
             sprA.shape.impulse(phyColl, phyMTV, -sprB.imass * inviMassSum);
             sprB.shape.impulse(phyColl, phyMTV, sprA.imass * inviMassSum);
-            stickConstraint(sprA.shape.vstick, 1f);
-            stickConstraint(sprB.shape.vstick, 1f);
-            sprA.shape.shapify();
-            sprB.shape.shapify();
-            sprA.shape.updateCenter();
-            sprB.shape.updateCenter();
             Log.printf("[resolv %d] postcollision obj:%d[%+.1f,%+.1f]%s / %d[%+.1f,%+.1f]%s",
               iteration,
-              sprA.id, sprA.shape.vstick.x, sprA.shape.vstick.y, sprA.highVelocity ? "(HV)": "    ",
-              sprB.id, sprB.shape.vstick.x, sprB.shape.vstick.y, sprB.highVelocity ? "(HV)": "    "
+              sprA.id, sprA.shape.verlet.x, sprA.shape.verlet.y, sprA.highVelocity ? "(HV)": "    ",
+              sprB.id, sprB.shape.verlet.x, sprB.shape.verlet.y, sprB.highVelocity ? "(HV)": "    "
         );
           }
         }
@@ -464,7 +485,7 @@ public class ProceduralNemesis extends JPanel {
   }
   
   static int _gid = 0;
-  abstract class Sprite {
+  abstract class Sprite implements Cloneable {
     int id = _gid++;
     int life;
     boolean gone = false;
@@ -489,6 +510,9 @@ public class ProceduralNemesis extends JPanel {
         if (life == 0) gone = true; 
       }
     }
+    public Vec2f getVec() {
+      return new Vec2f(shape.verlet.getX(), shape.verlet.getY());
+    }
     public void moveStatic(float dx, float dy) {
       shape.moveStatic(dx, dy);
       shape.shapify();
@@ -498,7 +522,7 @@ public class ProceduralNemesis extends JPanel {
       shape.shapify();
     }
     public void push(float dx, float dy) {
-      shape.vstick.push(dx, dy);
+      shape.push(dx, dy);
     }
     public void paintShape(Graphics2D g, Shape s) { paintShape(g,s,0,0); }
     public void paintShape(Graphics2D g) { paintShape(g,shape,0,0); }
@@ -513,12 +537,12 @@ public class ProceduralNemesis extends JPanel {
     }
     public void paintShapeVerlet(Graphics2D g, float dx, float dy) {
       g.setColor(Color.DARK_GRAY);
-      g.drawLine((int)(shape.vstick.v1.x + dx), (int)(shape.vstick.v1.y + dy),
-          (int)(shape.vstick.v2.x + dx), (int)(shape.vstick.v2.y + dy));
+      g.drawLine((int)(shape.verlet.v1.x + dx), (int)(shape.verlet.v1.y + dy),
+          (int)(shape.verlet.v2.x + dx), (int)(shape.verlet.v2.y + dy));
       g.setColor(Color.red);
-      g.drawRect((int)(shape.vstick.v1.x + dx)-3, (int)(shape.vstick.v1.y + dy)-3,6,6);
+      g.drawRect((int)(shape.verlet.v1.x + dx)-3, (int)(shape.verlet.v1.y + dy)-3,6,6);
       g.setColor(Color.green);
-      g.drawRect((int)(shape.vstick.v2.x + dx)-3, (int)(shape.vstick.v2.y + dy)-3,6,6);
+      g.drawRect((int)(shape.verlet.v2.x + dx)-3, (int)(shape.verlet.v2.y + dy)-3,6,6);
     }
     public void paintShapeNormals(Graphics2D g, Shape s, float dx, float dy) {
       if (s == null) return;
@@ -541,6 +565,14 @@ public class ProceduralNemesis extends JPanel {
           (int)(t*c1.getBlue() + it*c2.getBlue()) & 0xff,
           (int)(t*c1.getAlpha() + it*c2.getAlpha()) & 0xff);
     }
+    public Object clone() throws CloneNotSupportedException {
+      Sprite clone = (Sprite)super.clone();
+      clone.shape = (Shape)shape.clone();
+      clone.oobShape= (Shape)oobShape.clone();
+      clone.vel = (Vec2f)vel.clone();
+      clone.velN = (Vec2f)velN.clone();
+      return clone; 
+    } 
   } // class Sprite
   
   /////////////////////////////////////////////////////////////////////////////
@@ -551,7 +583,7 @@ public class ProceduralNemesis extends JPanel {
     float dx = stick.v2.x-stick.v1.x;
     float dy = stick.v2.y-stick.v1.y;
     final float cdist = (float)Math.sqrt(dx*dx + dy*dy);
-    final float diff = (stick.dist - cdist) * stick.idist;
+    final float diff = (stick.size - cdist) * stick.isize;
     final float c =  diff * 0.5f * dt;
     float fx = dx * c;
     float fy = dy * c;
@@ -586,7 +618,7 @@ public class ProceduralNemesis extends JPanel {
 
     void precalcVelocityOOB(Sprite spr) {
       Shape s = spr.shape;
-      float speedFactSq = s.vstick.speedSq() * (s.vstick.idist * s.vstick.idist); 
+      float speedFactSq = s.verlet.speedSq() * (s.verlet.isize * s.verlet.isize); 
       spr.highVelocity = speedFactSq > 0.125f;
       if (spr.highVelocity) {
         calcVelocityOOB(spr);
@@ -627,42 +659,42 @@ public class ProceduralNemesis extends JPanel {
       Shape s2 = spr2.shape;
       float s1MinX, s1MaxX, s1MinY, s1MaxY;
       float s2MinX, s2MaxX, s2MinY, s2MaxY;
-      s1MinX = -s1.vstick.distDSq2;
-      s1MaxX =  s1.vstick.distDSq2;
-      s2MinX = -s2.vstick.distDSq2;
-      s2MaxX =  s2.vstick.distDSq2;
+      s1MinX = -s1.verlet.sizeDSq2;
+      s1MaxX =  s1.verlet.sizeDSq2;
+      s2MinX = -s2.verlet.sizeDSq2;
+      s2MaxX =  s2.verlet.sizeDSq2;
       if (spr1.highVelocity) {
-        float v1x = s1.vstick.x - s1.vstick.ox;
+        float v1x = s1.verlet.x - s1.verlet.ox;
         if (v1x < 0) s1MinX += v1x;
         else         s1MaxX += v1x;
       }
       if (spr2.highVelocity) {
-        float v2x = s2.vstick.x - s2.vstick.ox;
+        float v2x = s2.verlet.x - s2.verlet.ox;
         if (v2x < 0) s2MinX += v2x;
         else         s2MaxX += v2x;
       }
       boolean overlapX = 
-          (s1.vstick.x + s1MinX < s2.vstick.x + s2MaxX) &&
-          (s2.vstick.x + s2MinX < s1.vstick.x + s1MaxX);
+          (s1.verlet.x + s1MinX < s2.verlet.x + s2MaxX) &&
+          (s2.verlet.x + s2MinX < s1.verlet.x + s1MaxX);
 
       if (!overlapX) return false;
-      s1MinY = -s1.vstick.distDSq2;
-      s1MaxY =  s1.vstick.distDSq2;
-      s2MinY = -s2.vstick.distDSq2;
-      s2MaxY =  s2.vstick.distDSq2;
+      s1MinY = -s1.verlet.sizeDSq2;
+      s1MaxY =  s1.verlet.sizeDSq2;
+      s2MinY = -s2.verlet.sizeDSq2;
+      s2MaxY =  s2.verlet.sizeDSq2;
       if (spr1.highVelocity) {
-        float v1y = s1.vstick.y - s1.vstick.oy;
+        float v1y = s1.verlet.y - s1.verlet.oy;
         if (v1y < 0) s1MinY += v1y;
         else         s1MaxY += v1y;
       }
       if (spr2.highVelocity) {
-        float v2y = s2.vstick.y - s2.vstick.oy;
+        float v2y = s2.verlet.y - s2.verlet.oy;
         if (v2y < 0) s2MinY += v2y;
         else         s2MaxY += v2y;
       }
       boolean overlapY = 
-          (s1.vstick.y + s1MinY < s2.vstick.y + s2MaxY) &&
-          (s2.vstick.y + s2MinY < s1.vstick.y + s1MaxY);
+          (s1.verlet.y + s1MinY < s2.verlet.y + s2MaxY) &&
+          (s2.verlet.y + s2MinY < s1.verlet.y + s1MaxY);
 
       return overlapY;
     }
@@ -672,7 +704,7 @@ public class ProceduralNemesis extends JPanel {
       Shape oob = spr.oobShape;
       Vec2f velPN = vectors[vix++];
       Vec2f tmp = vectors[vix++];
-      spr.vel.set(s.vstick.x - s.vstick.ox, s.vstick.y - s.vstick.oy);
+      spr.vel.set(s.verlet.x - s.verlet.ox, s.verlet.y - s.verlet.oy);
       spr.vel.assign(spr.velN).norm();
       spr.velN.assign(velPN).perp();
       
@@ -735,11 +767,11 @@ public class ProceduralNemesis extends JPanel {
       boolean collHV2 = false;
 
       if (spr1.highVelocity) {
-        spr1.shape.vstick.save(origV1,origV1o,origV2,origV2o);
+        spr1.shape.verlet.save(origV1,origV1o,origV2,origV2o);
         if (!highVelSAT(spr1, spr2)) return 0;
         collHV1 = true;
       } else if (spr2.highVelocity) {
-        spr2.shape.vstick.save(origV1,origV1o,origV2,origV2o);
+        spr2.shape.verlet.save(origV1,origV1o,origV2,origV2o);
         if (!highVelSAT(spr2, spr1)) return 0;
         collHV2 = true;
       }
@@ -747,14 +779,20 @@ public class ProceduralNemesis extends JPanel {
       if (pene1 == 0) {
         // If highvel collision was registered but stationary sat found nothing, restore state
         if (collHV1) {
+          if (debugShow) dbgShape(Color.magenta, s1, 1, "NOCOLL");
           Log.printf("[HV] registered but no static collision, restore %d from %+.1f,%+.1f to %+.1f,%+.1f", spr1.id,
-              s1.vstick.x, s1.vstick.y, (origV1.x + origV2.x)*0.5f,  (origV1.y + origV2.y)*0.5f);
-          s1.vstick.restore(origV1, origV1o, origV2, origV2o);
+              s1.verlet.x, s1.verlet.y, (origV1.x + origV2.x)*0.5f,  (origV1.y + origV2.y)*0.5f);
+          s1.verlet.restore(origV1, origV1o, origV2, origV2o);
+          s1.shapify();
+          if (debugShow) dbgShape(Color.cyan, s1, 1, "RESTORED");
         }
         if (collHV2) {
+          if (debugShow) dbgShape(Color.magenta, s2, 1, "NOCOLL");
           Log.printf("[HV] registered but no static collision, restore %d from %+.1f,%+.1f to %+.1f,%+.1f", spr2.id,
-              s2.vstick.x, s2.vstick.y, (origV1.x + origV2.x)*0.5f,  (origV1.y + origV2.y)*0.5f);
-          s2.vstick.restore(origV1, origV1o, origV2, origV2o);
+              s2.verlet.x, s2.verlet.y, (origV1.x + origV2.x)*0.5f,  (origV1.y + origV2.y)*0.5f);
+          s2.verlet.restore(origV1, origV1o, origV2, origV2o);
+          s2.shapify();
+          if (debugShow) dbgShape(Color.cyan, s2, 1, "RESTORED");
         }
         return 0;
       }
@@ -762,14 +800,20 @@ public class ProceduralNemesis extends JPanel {
       if (pene2 == 0) {
         // If highvel collision was registered but stationary sat found nothing, restore state
         if (collHV1) {
+          if (debugShow) dbgShape(Color.magenta, s1, 1, "NOCOLL");
           Log.printf("[HV] registered but no static collision, restore %d from %+.1f,%+.1f to %+.1f,%+.1f", spr1.id,
-              s1.vstick.x, s1.vstick.y, (origV1.x + origV2.x)*0.5f,  (origV1.y + origV2.y)*0.5f);
-          s1.vstick.restore(origV1, origV1o, origV2, origV2o);
+              s1.verlet.x, s1.verlet.y, (origV1.x + origV2.x)*0.5f,  (origV1.y + origV2.y)*0.5f);
+          s1.verlet.restore(origV1, origV1o, origV2, origV2o);
+          s1.shapify();
+          if (debugShow) dbgShape(Color.cyan, s1, 1, "RESTORED");
         }
         if (collHV2) {
+          if (debugShow) dbgShape(Color.magenta, s2, 1, "NOCOLL");
           Log.printf("[HV] registered but no static collision, restore %d from %+.1f,%+.1f to %+.1f,%+.1f", spr2.id,
-              s2.vstick.x, s2.vstick.y, (origV1.x + origV2.x)*0.5f,  (origV1.y + origV2.y)*0.5f);
-          s2.vstick.restore(origV1, origV1o, origV2, origV2o);
+              s2.verlet.x, s2.verlet.y, (origV1.x + origV2.x)*0.5f,  (origV1.y + origV2.y)*0.5f);
+          s2.verlet.restore(origV1, origV1o, origV2, origV2o);
+          s2.shapify();
+          if (debugShow) dbgShape(Color.cyan, s2, 1, "RESTORED");
         }
         return 0;
       }
@@ -791,15 +835,16 @@ public class ProceduralNemesis extends JPanel {
       mtv1.mul(pene1);
       mtv2.mul(pene2);
       
-      Log.printf("    %d / %d collision  pene1/2:%+.1f/%+.1f  mtv1:%+.1f,%+.1f  mtv2:%+.1f,%+.1f", 
-            spr1.id, spr2.id, pene1, pene2,
-            mtv1.x, mtv1.y, mtv2.x, mtv2.y);
       if (pene1 < pene2) {
         mtv1.assign(mtv);
       } else {
         mtv2.assign(mtv);
       }
       
+      Log.printf("    %d / %d collision  pene:%+.1f  mtv:%+.1f,%+.1f", 
+          spr1.id, spr2.id, pene1 < pene2 ? pene1 : pene2,
+          mtv.x, mtv.y);
+
       return pene1 < pene2 ? pene1 : pene2;
     }
 
@@ -815,7 +860,7 @@ public class ProceduralNemesis extends JPanel {
       if (peneHighVel != 0) {
         Vec2f frontVertex = sprHV.shape.findFarthestVertexInDirection(sprHV.vel);
         float t = collider.getTrajectoryEdgeCrossing(frontVertex, sprHV.vel, es, ee);
-        if (t < 0) {
+        if (t < -0.1f) {
           // Should not happen, but for some reason the SAT returns bad edge,
           // iterate through edges to find the best edge
           Log.println(String.format("    BAD SAT EDGE %f, e %+.1f,%+.1f--%+.1f,%+.1f", t, es.x, es.y, ee.x, ee.y));
@@ -837,11 +882,11 @@ public class ProceduralNemesis extends JPanel {
           if (debugShow) dbgLine(Color.green, es, ee, 1, "NEW");
         }
         if (!Float.isNaN(t)) {
-          sprHV.shape.vstick.moveStatic(sprHV.vel.x * t, sprHV.vel.y * t);
-          sprHV.shape.vstick.moveStatic(sprHV.velN.x * sprHV.shape.vstick.dist * 0.5f, sprHV.velN.y * sprHV.shape.vstick.dist * 0.5f);
+          sprHV.shape.verlet.moveStatic(sprHV.vel.x * t, sprHV.vel.y * t);
+          sprHV.shape.verlet.moveStatic(sprHV.velN.x * sprHV.shape.verlet.size * 0.5f, sprHV.velN.y * sprHV.shape.verlet.size * 0.5f);
           sprHV.shape.shapify();
           Log.printf("    [HV] COLLISION: spr pen:%+.1f, t:%+.1f, sprite translation dxy:%+.1f,%+.1f to %+.1f,%+.1f", 
-              peneHighVel, t, sprHV.vel.x * t, sprHV.vel.y * t, sprHV.shape.vstick.x, sprHV.shape.vstick.y);
+              peneHighVel, t, sprHV.vel.x * t, sprHV.vel.y * t, sprHV.shape.verlet.x, sprHV.shape.verlet.y);
         } else {
           if (debugShow) {
             Log.printf("    [HV] spr %d trajectory fail %f, vel %+.1f,%+.1f", sprHV.id, t, sprHV.vel.x, sprHV.vel.y);
@@ -870,16 +915,6 @@ public class ProceduralNemesis extends JPanel {
       Projection pother = projections[pix++];
       sref.getCenter(posRef);
       sother.getCenter(dirOther).sub(posRef).neg();
-      if (debugShow) {
-        // dbgMark(Color.green, posRef, 1,"ref");
-        // dbgShape(Color.green, sref, 1, null);
-        // dbgMark(Color.red, sother.getCenter(new Vec2f()), 1, "oth");
-        // dbgShape(Color.red, sother, 1, null);
-        // if (otherVelHint != null)
-        //   dbgLine(Color.red, sother.getCenter(new Vec2f()), sother.getCenter(new Vec2f()).add(otherVelHint), srefVertices, "vel");
-        // else
-        //   dbgLine(Color.red, sother.getCenter(new Vec2f()), sother.getCenter(new Vec2f()).add(dirOther), srefVertices, "dir");
-      }
 
       for (int i = 0; i < srefVertices; i++) {
         sref.getEdgeVertices(i, edgeS, edgeE);
@@ -894,20 +929,17 @@ public class ProceduralNemesis extends JPanel {
           Log.printf("        edge %d no coll, projection gap found %f", i, overlap);
           return 0;
         }
-        if (sref.vstick != null && overlap > sref.vstick.dist) {
+        if (sref.verlet != null && overlap > sref.verlet.size) {
           // TODO figure out why this happen, surely it is because of containment?
-          Log.println("overlap exceed sticklen " + overlap + " > " + sref.vstick.dist + ": collision ignored");
+          Log.println("overlap exceed verlet size " + overlap + " > " + sref.verlet.size + ": collision ignored");
           return 0; // returning 0 here makes things a lot more robust
         }
         
         float dot = axis.dot(otherVelHint == null ? dirOther : otherVelHint); 
-        Log.printf("        edge %d overlaps by %+.1f", i, overlap);
-        //if ((int)(overlap * 100) <= (int)(minOverlap * 100)) { // allow some numeric difference
         if (overlap <= minOverlap) {
           if (mtv != null) axis.assign(mtv);
           minOverlap = overlap;
           if (dot < 0) {
-            // if the edge has a normal pointing away from other object, it cannot collide 
             if (collEdgeS != null) edgeS.assign(collEdgeS);
             if (collEdgeE != null) edgeE.assign(collEdgeE);
           }
@@ -945,11 +977,39 @@ public class ProceduralNemesis extends JPanel {
     }
   } // class Projection
   
-  class VPoint extends Vec2f {
-    float ox, oy;
+  abstract class Verlet implements Cloneable {
+    float x,y,ox,oy,size;
+    public float getX() {return x;}
+    public float getY() {return y;}
+    public float getOX() {return ox;}
+    public float getOY() {return oy;}
+    public float getVX() {return x-ox;}
+    public float getVY() {return y-oy;}
+    public float speedSq() {
+      float dx = x - ox;
+      float dy = y - oy;
+      return dx*dx+dy*dy;
+    }
+    public void rest() {
+      ox = x; oy = y;
+    }
+    public abstract void update(float dt);
+    public abstract void push(float dx, float dy);
+    public abstract void moveStatic(float dx, float dy);
+    public abstract void rotateStatic(float dang);
+    public abstract void impulse(Vec2f collision, Vec2f movement, float factor);
+    public Object clone() throws CloneNotSupportedException { 
+      return super.clone(); 
+    } 
+  }
+
+  class VParticle extends Verlet {
     float ifriction = 0.95f;
     float vx, vy;
-    void update(float dt) {
+
+    public float getVX() {return vx;}
+    public float getVY() {return vy;}
+    public void update(float dt) {
       vx = ifriction * (x-ox);
       vy = ifriction * (y-oy);
       ox = x; oy = y;
@@ -960,38 +1020,36 @@ public class ProceduralNemesis extends JPanel {
       x += dx;
       y += dy;
     }
+    public void moveStatic(float dx, float dy) {
+      x += dx; y += dy; ox = x; oy = y;
+    }
+    public void rotateStatic(float dang) {}
     public void rest() {
-      ox = x; oy = y; vx = vy = 0;
+      super.rest();
+      vx = vy = 0;
     }
-    public float speedSq() {
-      float dx = x - ox;
-      float dy = y - oy;
-      return dx*dx+dy*dy;
-    }
-    public Vec2f assignOld(Vec2f dst) {
-      dst.x = ox;
-      dst.y = oy;
-      return dst;
+    public void impulse(Vec2f coll, Vec2f movement, float factor) {
+      push(movement.x*factor, movement.y*factor);
     }
   } // class VPoint
 
-  class VStick extends Vec2f {
-    float ox, oy;
-    VPoint v1, v2;
-    float dist, idist, distDSq2;
+  class VStick extends Verlet {
+    VParticle v1, v2;
+    float isize, sizeDSq2;
     public VStick(float dist) {
-      v1 = new VPoint();
-      v2 = new VPoint();
+      v1 = new VParticle();
+      v2 = new VParticle();
       v1.x = -dist / 2;
       v2.x =  dist / 2;
       v1.y = v2.y = 0;
       v1.ox = v1.x; v1.oy = v1.y;
       v2.ox = v2.x; v2.oy = v2.y;
       this.x = this.y = 0;
-      this.dist = dist;
-      this.idist = 1f/dist;
-      this.distDSq2 = dist * 0.7071f;
+      this.size = dist;
+      this.isize = 1f/dist;
+      this.sizeDSq2 = dist * 0.7071f;
     }
+
     public void save(Vec2f origV1, Vec2f origV1O, Vec2f origV2, Vec2f origV2O) {
       origV1.x = v1.x;
       origV1.y = v1.y;
@@ -1011,6 +1069,7 @@ public class ProceduralNemesis extends JPanel {
       v2.y = origV2.y;
       v2.ox = origV2O.x;
       v2.oy = origV2O.y;
+      updateCenter();
     }
     public void setInverseFriction(float f) {
       v1.ifriction = v2.ifriction = f;
@@ -1022,9 +1081,8 @@ public class ProceduralNemesis extends JPanel {
     }
     public void rest() {
       v1.rest(); v2.rest();
+      super.rest();
       updateCenter();
-      ox = this.x;
-      oy = this.y;
     }
     public void update(float dt) {
       v1.update(dt);
@@ -1059,11 +1117,6 @@ public class ProceduralNemesis extends JPanel {
       v2.ox = v2.x; v2.oy = v2.y;
       this.ox = this.x;  this.oy = this.y;
     }
-    public float speedSq() {
-      float dx = this.x - this.ox;
-      float dy = this.y - this.oy;
-      return dx*dx+dy*dy;
-    }
     // The frame is the verlet stick, comprising particles P1 and P2. Each world vertex G is a function
     // of this stick according to:
     //   G(P1,P2) = P1 + shape_x * (P2-P1) + shape_y * perp(P2-P1) =>
@@ -1090,7 +1143,7 @@ public class ProceduralNemesis extends JPanel {
       float v12x = v2.x - v1.x;
       float v12y = v2.y - v1.y;
       
-      float gscale = idist * idist;
+      float gscale = isize * isize;
       
       float gcx = (v1cx *  v12x + v1cy * v12y) * gscale;
       float gcy = (v1cx * -v12y + v1cy * v12x) * gscale; // perped v12
@@ -1108,15 +1161,25 @@ public class ProceduralNemesis extends JPanel {
       v2.x += dv2x;
       v2.y += dv2y;
     }
+    
+    public Object clone() throws CloneNotSupportedException { 
+      VStick clone = (VStick)super.clone();
+      clone.v1 = (VParticle)v1.clone();
+      clone.v2 = (VParticle)v2.clone();
+      return clone;
+    } 
   } // class VStick
   
-  class Shape {
+  class Shape implements Cloneable {
     List<Vec2f> defVert = new ArrayList<Vec2f>();
     List<Vec2f> vert = new ArrayList<Vec2f>();
-    VStick vstick;
-    
+    VStick verlet;
+    Vec2f t1 = new Vec2f();
+    Vec2f t2 = new Vec2f();
+
     long collisionGroups = 0;   // bitmask, each bit represents one group
     long collisionFilters = 0;  // bitmask, collisions where a filter bit matches colliders group bit are ignored
+    boolean resting = true;
     
     public Shape() {}
     public Shape(int vertices) { for (int i = 0;i  < vertices; i++) vert.add(new Vec2f());}
@@ -1126,13 +1189,13 @@ public class ProceduralNemesis extends JPanel {
     public int countVertices()  {return vert.size();}
     public Vec2f getEdge(int edge, Vec2f dst) {edge%=countVertices(); int nedge=(edge+1)%countVertices(); vert.get(nedge).sub(vert.get(edge), dst); return dst;}
     public void getEdgeVertices(int edge, Vec2f dstStart, Vec2f dstEnd) {edge%=countVertices(); int nedge=(edge+1)%countVertices(); vert.get(edge).assign(dstStart);vert.get(nedge).assign(dstEnd);}
-    public float angle() {return (float)Math.atan2(vstick.v2.y - vstick.v1.y,vstick.v2.x - vstick.v1.x);}
+    public float angle() {return (float)Math.atan2(verlet.v2.y - verlet.v1.y,verlet.v2.x - verlet.v1.x);}
     public void updateCenter() {
-      vstick.updateCenter();
+      verlet.updateCenter();
     }
     public Vec2f getCenter(Vec2f c) {
-      if (vstick != null) {
-        c.x=vstick.x;c.y=vstick.y;
+      if (verlet != null) {
+        c.x=verlet.x;c.y=verlet.y;
       } else {
         float sx = 0; float sy = 0;
         for (Vec2f v : vert) {
@@ -1144,10 +1207,25 @@ public class ProceduralNemesis extends JPanel {
       return c;
     }
 
+    public void update(float dt) {
+      if (verlet != null) {
+        verlet.update(dt);
+        float dx = Math.abs(verlet.getVX());
+        float dy = Math.abs(verlet.getVY());
+        resting = (dx+dy) <= 0.01f;
+      } else {
+        resting = true;
+      }
+    }
+
+    public boolean isResting() {
+      return resting;
+    }
+
     public void solidify(float stickLen) {
       // construct verlet stick
-      vstick = new VStick(stickLen);
-
+      verlet = new VStick(stickLen);
+      resting = false;
       // normalize definition vertices according to stick length
       float n = 1f / stickLen;
       for (Vec2f v : defVert) {
@@ -1164,12 +1242,12 @@ public class ProceduralNemesis extends JPanel {
     // align shape after verlet stick
     // x axis is along stick, y axis is sticks normal
     public void shapify() {
-      final float xframeCX = vstick.v2.x - vstick.v1.x;
-      final float xframeO  = vstick.v1.x;
-      final float xframeCY = vstick.v1.y - vstick.v2.y;
-      final float yframeCX = vstick.v2.y - vstick.v1.y;
-      final float yframeO  = vstick.v1.y;
-      final float yframeCY = vstick.v2.x - vstick.v1.x;
+      final float xframeCX = verlet.v2.x - verlet.v1.x;
+      final float xframeO  = verlet.v1.x;
+      final float xframeCY = verlet.v1.y - verlet.v2.y;
+      final float yframeCX = verlet.v2.y - verlet.v1.y;
+      final float yframeO  = verlet.v1.y;
+      final float yframeCY = verlet.v2.x - verlet.v1.x;
       final int verts = countVertices();
       for (int i = 0; i < verts; i++) {
         Vec2f def = defVert.get(i);
@@ -1180,18 +1258,11 @@ public class ProceduralNemesis extends JPanel {
     }
     
     public void impulse(Vec2f collision, Vec2f movement, float factor) {
-      vstick.impulse(collision, movement, factor);
-      // TODO PETER. testing, help the impulse a wee bit
-//      float mx = movement.x*factor*0.5f;
-//      float my = movement.y*factor*0.5f;
-//      vstick.v1.x += mx;
-//      vstick.v1.y += my;
-//      vstick.v2.x += mx;
-//      vstick.v2.y += my;
-//      vstick.v1.ox += mx;
-//      vstick.v1.oy += my;
-//      vstick.v2.ox += mx;
-//      vstick.v2.oy += my;
+      resting = false;
+      verlet.impulse(collision, movement, factor);
+      stickConstraint(verlet, 1f);
+      shapify();
+      updateCenter();
     }
     
     public Projection project(Vec2f axis, Projection dst) {
@@ -1203,14 +1274,18 @@ public class ProceduralNemesis extends JPanel {
     }
 
     public void moveStatic(float dx, float dy) {
-      vstick.moveStatic(dx, dy); 
+      resting = false;
+      verlet.moveStatic(dx, dy); 
     }
     public void rotateStatic(float dang) {
-      vstick.rotateStatic(dang); 
+      resting = false;
+      verlet.rotateStatic(dang); 
+    }
+    public void push(float dx, float dy) {
+      resting = false;
+      verlet.push(dx, dy); 
     }
     
-    Vec2f t1 = new Vec2f();
-    Vec2f t2 = new Vec2f();
     public Vec2f findNearestVertex(Vec2f edgeS, Vec2f edgeE, Vec2f norm, Vec2f dst) {
       float minDist = Float.MAX_VALUE;
       for (Vec2f v : vert) {
@@ -1260,9 +1335,22 @@ public class ProceduralNemesis extends JPanel {
       dst = edgeS.assign(dst).add(t*t1.x, t*t1.y);
       return dst;
     }
+    
+    public Object clone() throws CloneNotSupportedException {
+      Shape clone = (Shape)super.clone();
+      if (verlet != null) clone.verlet = (VStick)verlet.clone();
+      clone.t1 = (Vec2f)t1.clone();
+      clone.t2 = (Vec2f)t2.clone();
+      clone.defVert = new ArrayList<Vec2f>();
+      for (Vec2f v : defVert) clone.defVert.add((Vec2f)v.clone());
+      clone.vert = new ArrayList<Vec2f>();
+      for (Vec2f v : vert) clone.vert.add((Vec2f)v.clone());
+      return clone; 
+    } 
+
   } // class Shape
   
-  static class Vec2f {
+  static class Vec2f implements Cloneable {
     float x, y;
     public Vec2f() {}
     public Vec2f(float x, float y) {this.x=x; this.y=y;}
@@ -1296,6 +1384,7 @@ public class ProceduralNemesis extends JPanel {
     public float angle() {float t=1f/(float)Math.sqrt(x*x+y*y);return (float)Math.atan2(y*t, x*t);}
     public float distTo(Vec2f v) {return (float)Math.sqrt((v.x-x)*(v.x-x)+(v.y-y)*(v.y-y));}
     public static float dot(Vec2f v1,Vec2f v2) {return v1.x*v2.x+v1.y*v2.y;}
+    public Object clone() throws CloneNotSupportedException { return super.clone(); } 
   } // class Vec2f
   
   /////////////////////////////////////////////////////////////////////////////
@@ -1321,8 +1410,8 @@ public class ProceduralNemesis extends JPanel {
     ProceduralNemesis n = new ProceduralNemesis();
     JFrame f = new JFrame();
     f.getContentPane().add(n);
-    f.setSize(600, 400);
-    f.setLocation(0,0);
+    f.setSize(800, 600);
+    f.setLocation(100,100);
     f.setVisible(true);
     f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
     n.start();
