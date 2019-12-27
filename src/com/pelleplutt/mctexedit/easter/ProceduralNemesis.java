@@ -204,7 +204,7 @@ public class ProceduralNemesis extends JPanel {
       player.rotateStatic(-0.1f);
     }
     if (keyStatus[KEY_3]) {
-      thing.push(
+      thing.move(
           0.15f*(player.shape.getX() - thing.shape.getX()), 
           0.15f*(player.shape.getY() - thing.shape.getY()));
       keyStatus[KEY_3] = false;
@@ -264,7 +264,7 @@ public class ProceduralNemesis extends JPanel {
         player.shape.getX() + sdx*15.f,
         player.shape.getY() + sdy*15.f);
     shot.rotateStatic(player.shape.angle());
-    shot.push(sdx*16f, sdy*16f);
+    shot.move(sdx*16f, sdy*16f);
     shot.life = 40;
     shot.shape.setInverseFriction(0.975f);
     shot.shape.collisionGroups = (1<<0);
@@ -291,7 +291,7 @@ public class ProceduralNemesis extends JPanel {
   public void loop() {
     updateInteractions();
     if (debugMode && !debugStep) return;
-    if (iteration == ITERATIONS) {
+    if (iteration == ITERATIONS && debugShow) {
       loopNbr++;
       Log.printf("..............................  DEBUG LOOP %d", loopNbr);
     }
@@ -325,7 +325,7 @@ public class ProceduralNemesis extends JPanel {
 
     final int spriteCount = sprites.size();
     while (iteration-- > 0) {
-      Log.printf("..........................  ITERATION %d", iteration);
+      if (debugShow) Log.printf("..........................  ITERATION %d", iteration);
       boolean haveCollisions = false;
       for (int i = 0; i < spriteCount; i++) {
         Sprite sprA = sprites.get(i);
@@ -589,29 +589,42 @@ public class ProceduralNemesis extends JPanel {
     public Vec2f getVec() {
       return new Vec2f(shape.getX(), shape.getY());
     }
+    public void move(float dx, float dy) {
+      shape.move(dx, dy);
+    }
     public void moveStatic(float dx, float dy) {
       shape.moveStatic(dx, dy);
+      shape.shapify();
+    }
+    public void moveTo(float x, float y) {
+      shape.moveTo(x, y);
+      shape.shapify();
+    }
+    public void rotate(float dang) {
+      shape.rotate(dang);
       shape.shapify();
     }
     public void rotateStatic(float dang) {
       shape.rotateStatic(dang);
       shape.shapify();
     }
-    public void push(float dx, float dy) {
-      shape.push(dx, dy);
+    public void rotateTo(float ang) {
+      shape.rotateTo(ang);
+      shape.shapify();
     }
     public Verlet getVerlet() {      
       return shape.getVerlet();
     }
+    Vec2f t1 = new Vec2f();
+    Vec2f t2 = new Vec2f();
     public void paintShape(Graphics2D g, Shape s) { paintShape(g,s,0,0); }
     public void paintShape(Graphics2D g) { paintShape(g,shape,0,0); }
     public void paintShape(Graphics2D g, Shape s, float dx, float dy) {
       if (s == null) return;
       final int vcnt = s.countVertices();
-      for (int i = 0; i <= vcnt; i++) {
-        Vec2f v1 = s.getVertex(i % vcnt);
-        Vec2f v2 = s.getVertex((i+1) % vcnt);
-        g.drawLine((int)(v1.x+dx), (int)(v1.y+dy), (int)(v2.x+dx), (int)(v2.y+dy));
+      for (int i = 0; i < vcnt; i++) {
+        s.getEdgeVertices(i, t1, t2);
+        g.drawLine((int)(t1.x+dx), (int)(t1.y+dy), (int)(t2.x+dx), (int)(t2.y+dy));
       }
     }
     public void paintShapeNormals(Graphics2D g, ConvexShape s, float dx, float dy) {
@@ -694,6 +707,17 @@ public class ProceduralNemesis extends JPanel {
       if (spr.highVelocity) {
         calcVelocityOOB(spr);
       }
+    }
+
+    public Vec2f calcCollisionPoint(Vec2f edgeS, Vec2f edgeE, Vec2f nearVert, Vec2f dst) {
+      Vec2f t1 = vectors[vix++];
+      Vec2f t2 = vectors[vix++];
+      t1 = edgeE.assign(t1).sub(edgeS).norm();
+      t2 = nearVert.assign(t2).sub(edgeS);
+      float t = t1.dot(t2);
+      if (t < 0) t = 0; else if (t*t > t2.lenSq()) t = t2.len();
+      dst = edgeS.assign(dst).add(t*t1.x, t*t1.y);
+      return dst;
     }
     
     float collides(Sprite sprA, Sprite sprB, Vec2f mtvA, Vec2f mtvB, Vec2f mtv, Vec2f collision) {
@@ -885,10 +909,10 @@ public class ProceduralNemesis extends JPanel {
       mtv2.neg();
       if (pene1 < pene2) {
         s2.findNearestVertex(es1, ee1, mtv1, nearestVertex);
-        s2.calcCollisionPoint(es1, ee1, nearestVertex, collision);
+        calcCollisionPoint(es1, ee1, nearestVertex, collision);
       } else {
         s1.findNearestVertex(es2, ee2, mtv2, nearestVertex);
-        s1.calcCollisionPoint(es2, ee2, nearestVertex, collision);
+        calcCollisionPoint(es2, ee2, nearestVertex, collision);
       }
       
       mtv1.mul(pene1);
@@ -940,13 +964,20 @@ public class ProceduralNemesis extends JPanel {
           Log.println(String.format("    NEW SAT EDGE %f, e %+.1f,%+.1f--%+.1f,%+.1f", t, es.x, es.y, ee.x, ee.y));
           if (debugShow) dbgLine(Color.green, es, ee, 1, "NEW");
         }
+        boolean trajFail = true;
         if (!Float.isNaN(t)) {
-          sprHV.shape.getVerlet().moveStatic(sprHV.vel.x * t, sprHV.vel.y * t);
-          sprHV.shape.getVerlet().moveStatic(sprHV.velN.x * sprHV.shape.getVerlet().size * 0.5f, sprHV.velN.y * sprHV.shape.getVerlet().size * 0.5f);
+          float trajDX = sprHV.vel.x * t;
+          float trajDY = sprHV.vel.y * t;
+          float oldx = sprHV.shape.getX();
+          float oldy = sprHV.shape.getY();
+          sprHV.shape.moveStatic(trajDX, trajDY);
+          sprHV.shape.moveStatic(sprHV.velN.x * sprHV.shape.getVerlet().size * 0.5f, sprHV.velN.y * sprHV.shape.getVerlet().size * 0.5f);
           sprHV.shape.shapify();
-          Log.printf("    [HV] COLLISION: spr pen:%+.1f, t:%+.1f, sprite translation dxy:%+.1f,%+.1f to %+.1f,%+.1f", 
-              peneHighVel, t, sprHV.vel.x * t, sprHV.vel.y * t, sprHV.shape.getX(), sprHV.shape.getY());
-        } else {
+          Log.printf("    [HV] COLLISION: spr pen:%+.1f, t:%+.1f, sprite translation dxy:%+.1f,%+.1f,from %+.1f,%+.1f to %+.1f,%+.1f", 
+              peneHighVel, t, trajDX, trajDY, oldx, oldy, sprHV.shape.getX(), sprHV.shape.getY());
+          trajFail = false;
+        }
+        if (trajFail) {
           if (debugShow) {
             Log.printf("    [HV] spr %d trajectory fail vel %+.1f,%+.1f", sprHV.id, sprHV.vel.x, sprHV.vel.y);
             dbgLine(Color.magenta, frontVertex, sprHV.vel.assign(new Vec2f()).add(frontVertex));
@@ -1044,6 +1075,7 @@ public class ProceduralNemesis extends JPanel {
     public float getOY() {return oy;}
     public float getVX() {return x-ox;}
     public float getVY() {return y-oy;}
+    public float angle() {return 0;}
     public float speedSq() {
       float dx = x - ox;
       float dy = y - oy;
@@ -1053,10 +1085,14 @@ public class ProceduralNemesis extends JPanel {
       ox = x; oy = y;
     }
     public abstract void update(float dt);
-    public abstract void push(float dx, float dy);
+    public abstract void move(float dx, float dy);
     public abstract void moveStatic(float dx, float dy);
+    public abstract void moveTo(float x, float y);
+    public abstract void rotate(float dang);
     public abstract void rotateStatic(float dang);
+    public abstract void rotateTo(float ang);
     public abstract void impulse(Vec2f collision, Vec2f movement, float factor);
+    public abstract void setInverseFriction(float f);
     public Object clone() throws CloneNotSupportedException { 
       return super.clone(); 
     } 
@@ -1075,21 +1111,28 @@ public class ProceduralNemesis extends JPanel {
       x += vx*dt;
       y += vy*dt;
     }
-    public void push(float dx, float dy) {
+    public void move(float dx, float dy) {
       x += dx;
       y += dy;
+    }
+    public void moveTo(float x, float y) {
+      this.x = x;
+      this.y = y;
     }
     public void moveStatic(float dx, float dy) {
       x += dx; y += dy; ox = x; oy = y;
     }
+    public void rotate(float dang) {}
     public void rotateStatic(float dang) {}
+    public void rotateTo(float ang) {}
     public void rest() {
       super.rest();
       vx = vy = 0;
     }
     public void impulse(Vec2f coll, Vec2f movement, float factor) {
-      push(movement.x*factor, movement.y*factor);
+      move(movement.x*factor, movement.y*factor);
     }
+    public void setInverseFriction(float f) { ifriction = f; }
   } // class VParticle
 
   class VStick extends Verlet {
@@ -1133,10 +1176,10 @@ public class ProceduralNemesis extends JPanel {
     public void setInverseFriction(float f) {
       v1.ifriction = v2.ifriction = f;
     }
-    public void push(float dx, float dy) {
+    public void move(float dx, float dy) {
       x += dx; y += dy;
-      v1.push(dx,dy);
-      v2.push(dx,dy);
+      v1.move(dx,dy);
+      v2.move(dx,dy);
     }
     public void rest() {
       v1.rest(); v2.rest();
@@ -1154,6 +1197,9 @@ public class ProceduralNemesis extends JPanel {
       x = 0.5f*(v1.x + v2.x); 
       y = 0.5f*(v1.y + v2.y); 
     }
+    public float angle() {
+      return (float)Math.atan2(v2.y - v1.y,v2.x - v1.x);
+    }
     public void moveStatic(float dx, float dy) {
       v1.moveStatic(dx, dy);
       v2.moveStatic(dx, dy);
@@ -1161,7 +1207,13 @@ public class ProceduralNemesis extends JPanel {
       ox = x; oy = y;
       updateCenter();
     }
-    public void rotateStatic(float dang) {
+    public void moveTo(float x, float y) {
+      v1.moveTo(x, y);
+      v2.moveTo(x, y);
+      this.x += x; this.y = y;
+      updateCenter();
+    }
+    public void rotate(float dang) {
       final float cos = (float)Math.cos(dang);
       final float sin = (float)Math.sin(dang);
       updateCenter();
@@ -1171,9 +1223,23 @@ public class ProceduralNemesis extends JPanel {
       v1.y = y+fy;
       v2.x = x-fx;
       v2.y = y-fy;
+    }
+    public void rotateStatic(float dang) {
+      rotate(dang);
       v1.ox = v1.x; v1.oy = v1.y;
       v2.ox = v2.x; v2.oy = v2.y;
       ox = x; oy = y;
+    }
+    public void rotateTo(float ang) {
+      final float cos = (float)Math.cos(ang);
+      final float sin = (float)Math.sin(ang);
+      updateCenter();
+      float fx = cos * size * 0.5f;
+      float fy = sin * size * 0.5f;
+      v1.x = x-fx;
+      v1.y = y-fy;
+      v2.x = x+fx;
+      v2.y = y+fy;
     }
     // The frame is the verlet stick, comprising particles P1 and P2. Each world vertex G is a function
     // of this stick according to:
@@ -1234,58 +1300,188 @@ public class ProceduralNemesis extends JPanel {
     long collisionFilters = 0;  // bitmask, collisions where a filter bit matches colliders group bit are ignored
     Vec2f aabbMin = new Vec2f();
     Vec2f aabbMax = new Vec2f();
-    abstract void setInverseFriction(float ifri);
-    abstract float getX();
-    abstract float getY();
-    abstract float getVX();
-    abstract float getVY();
-    abstract Verlet getVerlet();
-    abstract int countVertices();
-    abstract Vec2f getVertex(int ix);
-    abstract Vec2f getEdge(int edge, Vec2f dst);
-    abstract void getEdgeVertices(int edge, Vec2f dstStart, Vec2f dstEnd);
-    abstract float angle();
-    abstract void updateCenter();
-    abstract Vec2f getCenter(Vec2f c);
-    abstract void update(float dt);
-    abstract boolean isResting();
-    abstract void shapify();
-    abstract void impulse(Vec2f collision, Vec2f movement, float factor);
-    abstract Projection project(Vec2f axis, Projection dst);
-    abstract void moveStatic(float dx, float dy);
-    abstract void rotateStatic(float dang);
-    abstract void push(float dx, float dy);
-    abstract Vec2f findNearestVertex(Vec2f edgeS, Vec2f edgeE, Vec2f norm, Vec2f dst);
-    abstract Vec2f findFarthestVertexInDirection(Vec2f d);
-    abstract Vec2f calcCollisionPoint(Vec2f edgeS, Vec2f edgeE, Vec2f nearVert, Vec2f dst);
-    public Object clone() throws CloneNotSupportedException {
-      return super.clone();
-    }
-  }
-  class ConvexShape extends Shape {
-    List<Vec2f> defVert = new ArrayList<Vec2f>();
-    List<Vec2f> vert = new ArrayList<Vec2f>();
-    VStick verlet;
-    Vec2f t1 = new Vec2f();
-    Vec2f t2 = new Vec2f();
-
+    Verlet verlet;
     boolean resting = true;
     
-    public ConvexShape() {}
-    public ConvexShape(int vertices) { for (int i = 0;i  < vertices; i++) vert.add(new Vec2f());}
+    public void setInverseFriction(float ifri) {verlet.setInverseFriction(ifri);}
     public float getX() {return verlet.getX();}
     public float getY() {return verlet.getY();}
     public float getVX() {return verlet.getVX();}
     public float getVY() {return verlet.getVY();}
+    public float angle() {return verlet.angle();}
+    public void update(float dt) {
+      if (verlet != null) {
+        verlet.update(dt);
+        float dx = Math.abs(verlet.getVX());
+        float dy = Math.abs(verlet.getVY());
+        resting = (dx+dy) <= 0.01f;
+      } else {
+        resting = true;
+      }
+    }
+    public boolean isResting() { return resting; }
+    public Verlet getVerlet() { return verlet; }
+    public void move(float dx, float dy) {
+      resting = false;
+      verlet.move(dx, dy); 
+    }
+    public void moveStatic(float dx, float dy) {
+      resting = false;
+      verlet.moveStatic(dx, dy); 
+    }
+    public void moveTo(float x, float y) {
+      resting = false;
+      verlet.moveTo(x, y); 
+    }
+    public void rotate(float dang) {
+      resting = false;
+      verlet.rotate(dang); 
+    }
+    public void rotateStatic(float dang) {
+      resting = false;
+      verlet.rotateStatic(dang); 
+    }
+    public void rotateTo(float ang) {
+      resting = false;
+      verlet.rotateTo(ang); 
+    }
+    abstract int countVertices();
+    abstract Vec2f getVertex(int ix);
+    abstract Vec2f getEdge(int edge, Vec2f dst);
+    abstract void getEdgeVertices(int edge, Vec2f dstStart, Vec2f dstEnd);
+    abstract void updateCenter();
+    abstract Vec2f getCenter(Vec2f c);
+    abstract void shapify();
+    abstract void impulse(Vec2f collision, Vec2f movement, float factor);
+    abstract Projection project(Vec2f axis, Projection dst);
+    abstract Vec2f findNearestVertex(Vec2f edgeS, Vec2f edgeE, Vec2f norm, Vec2f dst);
+    abstract Vec2f findFarthestVertexInDirection(Vec2f d);
+    public Object clone() throws CloneNotSupportedException {
+      return super.clone();
+    }
+  } // class Shape
+  class CompoundShape extends Shape {
+    List<Shape> shapes = new ArrayList<Shape>();
+    List<Integer> vertexCounts = new ArrayList<Integer>();
+    List<float[]> dimOffsets = new ArrayList<float[]>();
+    int vertices;
+    VStick vstick; // TODO instantiate this
+
+    public void addShape(Shape s, float dx, float dy, float dang) {
+      shapes.add(s);
+      dimOffsets.add(new float[]{dx,dy,dang});
+      rehashShapes();
+    }
+    public int shapeCount() {
+      return shapes.size();
+    }
+    public Shape getShape(int ix) {
+      return shapes.get(ix);
+    }
+
+    public int countVertices() { return vertices; }
+    public Vec2f getVertex(int ix) {
+      int six = getShapeIx(ix);
+      int offset = vertexCounts.get(six);
+      return shapes.get(six).getVertex(ix - offset);
+    }
+    public Vec2f getEdge(int ix, Vec2f dst) {
+      int six = getShapeIx(ix);
+      int offset = vertexCounts.get(six);
+      return shapes.get(six).getEdge(ix - offset, dst);
+    }
+    public void getEdgeVertices(int ix, Vec2f dstStart, Vec2f dstEnd) {
+      int six = getShapeIx(ix);
+      int offset = vertexCounts.get(six);
+      shapes.get(six).getEdgeVertices(ix - offset, dstStart, dstEnd);
+    }
+    public void updateCenter() {
+      vstick.updateCenter();
+    }
+    public Vec2f getCenter(Vec2f c) {
+      c.x = vstick.x;
+      c.y = vstick.y;
+      return c;
+    }
+    public void shapify() {
+      vstick.updateCenter();
+      final float a = vstick.angle();
+      final float x = vstick.getX();
+      final float y = vstick.getY();
+      final int shapeCount = shapes.size();
+      aabbMin.x = aabbMin.y = Float.MAX_VALUE;
+      aabbMax.x = aabbMax.y = Float.MIN_VALUE;
+      for (int ix = 0; ix < shapeCount; ix++) {
+        Shape s = shapes.get(ix);
+        float[] dimOffset = dimOffsets.get(ix);
+        s.moveTo(x + dimOffset[0], y + dimOffset[1]);
+        s.rotateTo(a + dimOffset[2]);
+        s.shapify();
+        if (s.aabbMin.x < aabbMin.x) aabbMin.x = s.aabbMin.x;
+        if (s.aabbMin.y < aabbMin.y) aabbMin.y = s.aabbMin.y;
+        if (s.aabbMin.x > aabbMax.x) aabbMax.x = s.aabbMin.x;
+        if (s.aabbMin.y > aabbMax.y) aabbMax.y = s.aabbMin.y;
+      }
+    }
+    public void impulse(Vec2f collision, Vec2f movement, float factor) {
+      resting = false;
+      verlet.impulse(collision, movement, factor);
+      stickConstraint(vstick, 1f);
+      shapify();
+      updateCenter();
+    }
+    public Projection project(Vec2f axis, Projection dst) {
+      throw new RuntimeException("Must not project compound shapes");
+    }
+    public Vec2f findNearestVertex(Vec2f edgeS, Vec2f edgeE, Vec2f norm, Vec2f dst) {
+      throw new RuntimeException("Must not find nearest vertex to edge in compound shapes");
+    }
+    public Vec2f findFarthestVertexInDirection(Vec2f d) {
+      throw new RuntimeException("Must not find farthest vertex in direction in compound shapes");
+    }
+
+    int getShapeIx(int vertexIx) {
+      int vix = 0;
+      final int shapeCount = shapes.size();
+      while (vix < shapeCount && vertices < vertexCounts.get(vix)) vix++;
+      return --vix;
+    }
+
+    void rehashShapes() {
+      vertices = 0;
+      vertexCounts.clear();
+      for (Shape s : shapes) {
+        vertices += s.countVertices();
+        vertexCounts.add(vertices);
+      }
+    }
+
+    public Object clone() throws CloneNotSupportedException {
+      CompoundShape clone = (CompoundShape)super.clone();
+      clone.shapes = new ArrayList<Shape>();
+      clone.vertexCounts = new ArrayList<Integer>();
+      for (Shape s : shapes) clone.shapes.add((Shape)s.clone());
+      for (int i : vertexCounts) clone.vertexCounts.add(i);
+      return clone; 
+    } 
+  } // class CompoundShape
+
+  class ConvexShape extends Shape {
+    List<Vec2f> defVert = new ArrayList<Vec2f>();
+    List<Vec2f> vert = new ArrayList<Vec2f>();
+    VStick vstick;
+    Vec2f t1 = new Vec2f();
+    Vec2f t2 = new Vec2f();
+
+    public ConvexShape() {}
+    public ConvexShape(int vertices) { for (int i = 0;i  < vertices; i++) vert.add(new Vec2f());}
     public Verlet getVerlet() {return verlet;}
-    public void setInverseFriction(float ifri) {verlet.setInverseFriction(ifri);}
     public void addVertex(Vec2f v) {defVert.add(v);}
     public Vec2f getVertex(int i) {return vert.get(i);}
     public int countVertices()  {return vert.size();}
     public Vec2f getEdge(int edge, Vec2f dst) {edge%=countVertices(); int nedge=(edge+1)%countVertices(); vert.get(nedge).sub(vert.get(edge), dst); return dst;}
     public void getEdgeVertices(int edge, Vec2f dstStart, Vec2f dstEnd) {edge%=countVertices(); int nedge=(edge+1)%countVertices(); vert.get(edge).assign(dstStart);vert.get(nedge).assign(dstEnd);}
-    public float angle() {return (float)Math.atan2(verlet.v2.y - verlet.v1.y,verlet.v2.x - verlet.v1.x);}
-    public void updateCenter() { verlet.updateCenter(); }
+    public void updateCenter() { vstick.updateCenter(); }
     public Vec2f getCenter(Vec2f c) {
       if (verlet != null) {
         c.x=verlet.x;c.y=verlet.y;
@@ -1300,24 +1496,10 @@ public class ProceduralNemesis extends JPanel {
       return c;
     }
 
-    public void update(float dt) {
-      if (verlet != null) {
-        verlet.update(dt);
-        float dx = Math.abs(verlet.getVX());
-        float dy = Math.abs(verlet.getVY());
-        resting = (dx+dy) <= 0.01f;
-      } else {
-        resting = true;
-      }
-    }
-
-    public boolean isResting() {
-      return resting;
-    }
-
     public void solidify(float stickLen) {
       // construct verlet stick
-      verlet = new VStick(stickLen);
+      vstick = new VStick(stickLen);
+      verlet = vstick;
       resting = false;
       // normalize definition vertices according to stick length
       float n = 1f / stickLen;
@@ -1327,7 +1509,6 @@ public class ProceduralNemesis extends JPanel {
       }
       
       shapify();
-      
       // Optimization, collision, sat: check all edges, mark all that are parallel so
       // only one of all parallels is tested during sat
     }
@@ -1335,12 +1516,12 @@ public class ProceduralNemesis extends JPanel {
     // align shape after verlet stick
     // x axis is along stick, y axis is sticks normal
     public void shapify() {
-      final float xframeCX = verlet.v2.x - verlet.v1.x;
-      final float xframeO  = verlet.v1.x;
-      final float xframeCY = verlet.v1.y - verlet.v2.y;
-      final float yframeCX = verlet.v2.y - verlet.v1.y;
-      final float yframeO  = verlet.v1.y;
-      final float yframeCY = verlet.v2.x - verlet.v1.x;
+      final float xframeCX = vstick.v2.x - vstick.v1.x;
+      final float xframeO  = vstick.v1.x;
+      final float xframeCY = vstick.v1.y - vstick.v2.y;
+      final float yframeCX = vstick.v2.y - vstick.v1.y;
+      final float yframeO  = vstick.v1.y;
+      final float yframeCY = vstick.v2.x - vstick.v1.x;
       final int verts = countVertices();
       aabbMin.x = aabbMin.y = Float.MAX_VALUE;
       aabbMax.x = aabbMax.y = Float.MIN_VALUE;
@@ -1359,7 +1540,7 @@ public class ProceduralNemesis extends JPanel {
     public void impulse(Vec2f collision, Vec2f movement, float factor) {
       resting = false;
       verlet.impulse(collision, movement, factor);
-      stickConstraint(verlet, 1f);
+      stickConstraint(vstick, 1f);
       shapify();
       updateCenter();
     }
@@ -1372,19 +1553,6 @@ public class ProceduralNemesis extends JPanel {
       return dst;
     }
 
-    public void moveStatic(float dx, float dy) {
-      resting = false;
-      verlet.moveStatic(dx, dy); 
-    }
-    public void rotateStatic(float dang) {
-      resting = false;
-      verlet.rotateStatic(dang); 
-    }
-    public void push(float dx, float dy) {
-      resting = false;
-      verlet.push(dx, dy); 
-    }
-    
     public Vec2f findNearestVertex(Vec2f edgeS, Vec2f edgeE, Vec2f norm, Vec2f dst) {
       float minDist = Float.MAX_VALUE;
       for (Vec2f v : vert) {
@@ -1426,15 +1594,6 @@ public class ProceduralNemesis extends JPanel {
       return res;
     }
 
-    public Vec2f calcCollisionPoint(Vec2f edgeS, Vec2f edgeE, Vec2f nearVert, Vec2f dst) {
-      t1 = edgeE.assign(t1).sub(edgeS).norm();
-      t2 = nearVert.assign(t2).sub(edgeS);
-      float t = t1.dot(t2);
-      if (t < 0) t = 0; else if (t*t > t2.lenSq()) t = t2.len();
-      dst = edgeS.assign(dst).add(t*t1.x, t*t1.y);
-      return dst;
-    }
-    
     public Object clone() throws CloneNotSupportedException {
       ConvexShape clone = (ConvexShape)super.clone();
       if (verlet != null) clone.verlet = (VStick)verlet.clone();
@@ -1446,7 +1605,6 @@ public class ProceduralNemesis extends JPanel {
       for (Vec2f v : vert) clone.vert.add((Vec2f)v.clone());
       return clone; 
     } 
-
   } // class ConvexShape
   
   static class Vec2f implements Cloneable {
@@ -1509,8 +1667,8 @@ public class ProceduralNemesis extends JPanel {
     ProceduralNemesis n = new ProceduralNemesis();
     JFrame f = new JFrame();
     f.getContentPane().add(n);
-    f.setSize(400, 300);
-    f.setLocation(100,900);
+    f.setSize(600, 400);
+    f.setLocation(100,100);
     f.setVisible(true);
     f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
     n.start();
