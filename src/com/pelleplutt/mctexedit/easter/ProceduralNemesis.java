@@ -16,7 +16,7 @@ public class ProceduralNemesis extends JPanel {
   static final float COLLISION_MIN_PENE = 0.01f;
   static final int WIDTH = 800;
   static final int HEIGHT = 600;
-  static final int ITERATIONS = 5;
+  static final int ITERATIONS = 12;
   static final float THING_DEF_ROT = 3.137328f;//3.14f*1.35f;
   static final float NEAR_ZERO = 0.001f;
   
@@ -64,6 +64,7 @@ public class ProceduralNemesis extends JPanel {
   void setupScene() {
     player = new Player();
     player.move(32, 100);
+    player.getVerlet().setInverseFriction(0.75f);
     player.rest();
     sprites.add(player);
     thing = new Thing();
@@ -75,22 +76,22 @@ public class ProceduralNemesis extends JPanel {
     enemy.move(400,300);
     enemy.rest();
     sprites.add(enemy);
-    /*
+    /**/ 
     for (int j = 0; j < 5; j++) {
-      for (int i = 0; i < 3; i++) {
+      for (int i = 0; i < 5; i++) {
         Thing2 t = new Thing2();
-        t.move(100 + i*20, 160 + j*20);
+        t.move(100 + i*16, 160 + j*20 + ((i&1)==0?10:0));
         t.rest();
         sprites.add(t);
       }
     }
     for (int i = 0; i < 5; i++) {
       Thing3 t = new Thing3();
-      t.move(200, 220 + i * 20);
+      t.move(270, 220 + i * 20);
       t.rest();
       sprites.add(t);
     }
-    */
+    /**/
     Ground ground = new Ground();
     sprites.add(ground);
   }
@@ -216,7 +217,7 @@ public class ProceduralNemesis extends JPanel {
       }});
   }
   
-  static final float PLAYER_STEP = 4;
+  static final float PLAYER_STEP = 1f;
   int fireCoolOff = 0;
   void updateInteractions() {
     float a = player.shape.angle();
@@ -230,24 +231,24 @@ public class ProceduralNemesis extends JPanel {
 
     boolean diag = false;
     if (keyStatus[KEY_UP]) {
-      pdx += dy; pdy += -dx;
+      pdx +=  dy; pdy += -dx;
     }
     if (keyStatus[KEY_DOWN]) {
-      pdx += -dy; pdy += dx;
+      pdx += -dy; pdy +=  dx;
     }
     if (keyStatus[KEY_LEFT]) {
       pdx += -dx; pdy += -dy;
       diag |= (keyStatus[KEY_UP] || keyStatus[KEY_DOWN]); 
     }
     if (keyStatus[KEY_RIGHT]) {
-      pdx += dx; pdy += dy;
+      pdx +=  dx; pdy +=  dy;
       diag |= (keyStatus[KEY_UP] || keyStatus[KEY_DOWN]); 
     }
     if (diag) {
       pdx *= 0.7071f; // 1/sqrt(2);
       pdy *= 0.7071f;
     }
-    player.moveStatic(pdx, pdy);
+    player.move(pdx, pdy);
 
     
     if (keyStatus[KEY_ESC]) {
@@ -342,10 +343,11 @@ public class ProceduralNemesis extends JPanel {
     float a = player.shape.angle();
     float sdx = (float)Math.cos(a);
     float sdy = (float)Math.sin(a);
-    shot.moveStatic(
+    shot.move(
         player.shape.getX() + sdx*15.f,
         player.shape.getY() + sdy*15.f);
     shot.rotateStatic(player.shape.angle());
+    shot.rest();
     shot.move(sdx*16f, sdy*16f);
     shot.life = 40;
     shot.shape.setInverseFriction(0.975f);
@@ -664,6 +666,7 @@ public class ProceduralNemesis extends JPanel {
     boolean highVelocity = false;
     float highVelBodyX, highVelBodyY;
     Vec2f vel = new Vec2f();
+    float velScalar;
     Vec2f velN = new Vec2f();
     final Color colTrans = new Color(0,0,0,0);
     public void paint(Graphics2D g) {
@@ -736,7 +739,7 @@ public class ProceduralNemesis extends JPanel {
         float cy = 0.5f*(v1.y + v2.y);
         float nx = -(v2.y - v1.y);
         float ny =  (v2.x - v1.x);
-        g.drawLine((int)((cx+dx) * mag), (int)((cy+dy) * mag), (int)((cx+nx+dx) * mag), (int)((cy+ny+dy) * mag);
+        g.drawLine((int)((cx+dx) * mag), (int)((cy+dy) * mag), (int)((cx+nx+dx) * mag), (int)((cy+ny+dy) * mag));
       }
     }
     public Color colMix(Color c1, Color c2, float t) {
@@ -893,7 +896,8 @@ public class ProceduralNemesis extends JPanel {
       Vec2f velPN = vectors[vix++];
       Vec2f tmp = vectors[vix++];
       spr.vel.set(s.getVX(), s.getVY());
-      spr.vel.assign(spr.velN).norm();
+      spr.velScalar = spr.vel.len();
+      spr.vel.assign(spr.velN).mul(1f/spr.velScalar);
       spr.velN.assign(velPN).perp();
       
       // project shape onto normalized velocity vector and perped normalized velocity vector
@@ -983,6 +987,9 @@ public class ProceduralNemesis extends JPanel {
           if (debugShow) dbgShape(Color.cyan, s2, 1, "RESTORED");
         }
         return 0;
+      } else {
+        if (collHV1) spr1.highVelocity = false;
+        if (collHV2) spr2.highVelocity = false;
       }
       pene2 = sat(s2, s1, null, mtv2, es2, ee2);
       if (pene2 == 0) {
@@ -1004,6 +1011,9 @@ public class ProceduralNemesis extends JPanel {
           if (debugShow) dbgShape(Color.cyan, s2, 1, "RESTORED");
         }
         return 0;
+      } else {
+        if (collHV1) spr1.highVelocity = false;
+        if (collHV2) spr2.highVelocity = false;
       }
       if (debugShow && (collHV1 || collHV2)) {
         dbgShape(Color.magenta, collHV1 ? s1 : s2, 1, null);
@@ -1038,8 +1048,8 @@ public class ProceduralNemesis extends JPanel {
     } // intersectSAT
 
     boolean highVelSAT(Sprite sprHV, Sprite spr) {
-      Vec2f es = vectors[vix++]; 
-      Vec2f ee = vectors[vix++]; 
+      Vec2f es = vectors[vix++];
+      Vec2f ee = vectors[vix++];
       float peneHighVel = sat(sprHV.oobShape, spr.shape, null, null, null, null);
       if (peneHighVel == 0) {
         Log.printf("    [HV] %d / %d NO SAT", sprHV.id, spr.id);
@@ -1048,44 +1058,48 @@ public class ProceduralNemesis extends JPanel {
       peneHighVel = sat(spr.shape, sprHV.oobShape, sprHV.vel, null, es, ee);
       if (peneHighVel != 0) {
         Vec2f frontVertex = sprHV.shape.findFarthestVertexInDirection(sprHV.vel);
-        float t = collider.getTrajectoryEdgeCrossing(frontVertex, sprHV.vel, es, ee);
-        if (t < -0.1f) {
+        float t = collider.getTrajectoryEdgeCrossing(frontVertex, sprHV.velN, es, ee);
+        if (Float.isNaN(t) || t < -0.1f || t > (sprHV.velScalar + 0.1f)) {
           // Should not happen, but for some reason the SAT returns bad edge,
           // iterate through edges to find the best edge
-          Log.println(String.format("    BAD SAT EDGE %f, e %+.1f,%+.1f--%+.1f,%+.1f", t, es.x, es.y, ee.x, ee.y));
+          Log.println(String.format("         BAD SAT EDGE t:%f, e %+.1f,%+.1f--%+.1f,%+.1f", t, es.x, es.y, ee.x, ee.y));
           if (debugShow) dbgLine(Color.red, es, ee, 1, "BAD");
           t = Float.MAX_VALUE;
           Vec2f esCand = vectors[vix++]; 
           Vec2f eeCand = vectors[vix++]; 
           for (int i = 0; i < spr.shape.countVertices(); i++) {
             spr.shape.getEdgeVertices(i, esCand, eeCand);
-            float candT = collider.getTrajectoryEdgeCrossing(frontVertex, sprHV.vel, esCand, eeCand);
-            if (!Float.isNaN(candT) && candT >= 0 && candT < t) {
+            float candT = collider.getTrajectoryEdgeCrossing(frontVertex, sprHV.velN, esCand, eeCand);
+            if (!Float.isNaN(candT) && Math.abs(candT) < Math.abs(t)) {
               t = candT;
               esCand.assign(es);
               eeCand.assign(ee);
             }
           }
           if (t == Float.MAX_VALUE) return false; // straight out impossible if the shapes are convex
-          Log.println(String.format("    NEW SAT EDGE %f, e %+.1f,%+.1f--%+.1f,%+.1f", t, es.x, es.y, ee.x, ee.y));
+          Log.println(String.format("         NEW SAT EDGE t:%f, e %+.1f,%+.1f--%+.1f,%+.1f", t, es.x, es.y, ee.x, ee.y));
           if (debugShow) dbgLine(Color.green, es, ee, 1, "NEW");
         }
         boolean trajFail = true;
-        if (!Float.isNaN(t)) {
-          float trajDX = sprHV.vel.x * t;
-          float trajDY = sprHV.vel.y * t;
+        if (!Float.isNaN(t) && Math.abs(t) <= (sprHV.velScalar + 0.1f)) {
+          float trajDX = sprHV.velN.x * t;
+          float trajDY = sprHV.velN.y * t;
           float oldx = sprHV.shape.getX();
           float oldy = sprHV.shape.getY();
-          // TODO PETER
-          // check up the rebounce vector
           sprHV.shape.moveStatic(trajDX, trajDY);
-          sprHV.shape.moveStatic(
+          sprHV.rest();
+          sprHV.shape.move(
             sprHV.velN.x * sprHV.shape.getVerlet().size * 0.5f, 
             sprHV.velN.y * sprHV.shape.getVerlet().size * 0.5f);
           sprHV.shape.shapify();
+          if (debugShow) {
+            dbgLine(Color.yellow, new Vec2f(oldx, oldy), new Vec2f(oldx+sprHV.vel.x, oldy+sprHV.vel.y), 1, "HV velocity");
+          }
           Log.printf("    [HV] COLLISION: spr pen:%+.1f, t:%+.1f, sprite translation dxy:%+.1f,%+.1f,from %+.1f,%+.1f to %+.1f,%+.1f", 
               peneHighVel, t, trajDX, trajDY, oldx, oldy, sprHV.shape.getX(), sprHV.shape.getY());
           trajFail = false;
+        } else {
+          Log.printf("         traj rejected t:%f velScalar:%f", t, sprHV.velScalar);
         }
         if (trajFail) {
           if (debugShow) {
@@ -1179,6 +1193,7 @@ public class ProceduralNemesis extends JPanel {
   
   abstract class Verlet implements Cloneable {
     float x,y,ox,oy,size;
+    float gravy, gravx;
     public float getX() {return x;}
     public float getY() {return y;}
     public float getOX() {return ox;}
@@ -1193,6 +1208,9 @@ public class ProceduralNemesis extends JPanel {
     }
     public void rest() {
       ox = x; oy = y;
+    }
+    public void setGravity(float x, float y) {
+      gravx = x; gravy = y;
     }
     public abstract void update(float dt);
     public abstract void move(float dx, float dy);
@@ -1218,8 +1236,8 @@ public class ProceduralNemesis extends JPanel {
       vx = ifriction * (x-ox);
       vy = ifriction * (y-oy);
       ox = x; oy = y;
-      x += vx*dt;
-      y += vy*dt;
+      x += vx*dt + gravx;
+      y += vy*dt + gravy;
     }
     public void move(float dx, float dy) {
       x += dx; y += dy;
@@ -1284,6 +1302,12 @@ public class ProceduralNemesis extends JPanel {
     public void setInverseFriction(float f) {
       v1.ifriction = v2.ifriction = f;
     }
+    public void setGravity(float x, float y) {
+      v1.gravx = v2.gravx = x;
+      v1.gravy = v2.gravy = y;
+      gravx = x; gravy = y;
+    }
+
     public void move(float dx, float dy) {
       x += dx; y += dy;
       v1.move(dx,dy);
@@ -1455,6 +1479,9 @@ public class ProceduralNemesis extends JPanel {
     public void rotateTo(float ang) {
       resting = false;
       verlet.rotateTo(ang); 
+    }
+    public void setGravity(float x, float y) {
+      verlet.setGravity(x,y);
     }
     public int subShapeCount() {
       return 0;
@@ -1762,6 +1789,7 @@ public class ProceduralNemesis extends JPanel {
     public float dot(Vec2f v) {return this.x*v.x+this.y*v.y;}
     public float angle() {return (float)Math.atan2(y,x);}
     public float distTo(Vec2f v) {return (float)Math.sqrt((v.x-x)*(v.x-x)+(v.y-y)*(v.y-y));}
+    public float distToSq(Vec2f v) {return (v.x-x)*(v.x-x)+(v.y-y)*(v.y-y);}
     public static float dot(Vec2f v1,Vec2f v2) {return v1.x*v2.x+v1.y*v2.y;}
     public Object clone() throws CloneNotSupportedException { return super.clone(); } 
   } // class Vec2f
