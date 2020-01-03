@@ -2,6 +2,7 @@ package com.pelleplutt.mctexedit.easter;
 
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.geom.AffineTransform;
 import java.awt.image.*;
 import java.util.*;
 import java.util.List;
@@ -35,8 +36,18 @@ public class ProceduralNemesis extends JPanel {
   static final int KEY_8 = 13;
   static final int KEY_9 = 14;
   static final int KEY_0 = 15;
+  static final int KEY_SH1 = 16;
+  static final int KEY_SH2 = 17;
+  static final int KEY_SH3 = 18;
+  static final int KEY_SH4 = 19;
+  static final int KEY_SH5 = 20;
+  static final int KEY_SH6 = 21;
+  static final int KEY_SH7 = 22;
+  static final int KEY_SH8 = 23;
+  static final int KEY_SH9 = 24;
+  static final int KEY_SH0 = 25;
   
-  boolean keyStatus[] = new boolean[16];
+  boolean keyStatus[] = new boolean[32];
   Collider collider = new Collider();
   Player player;
   Thing thing; // TODO remove
@@ -48,38 +59,40 @@ public class ProceduralNemesis extends JPanel {
   boolean debugShow = false;
   boolean debugStep = false;
   int loopNbr = 0;
+  float mag = 1f, transX = 0f, transY = 0f;
   
   void setupScene() {
     player = new Player();
-    player.moveStatic(32, 100);
+    player.move(32, 100);
+    player.rest();
     sprites.add(player);
     thing = new Thing();
-    thing.moveStatic(200, 100);
-    thing.rotateStatic(THING_DEF_ROT);
+    thing.move(200, 100);
+    thing.rotate(THING_DEF_ROT);
+    thing.rest();
     sprites.add(thing);
     Sprite enemy = new EnemyFighter();
-    enemy.moveStatic(400,300);
+    enemy.move(400,300);
+    enemy.rest();
     sprites.add(enemy);
-    for (int i = 0; i < 3; i++) {
-      Thing2 t = new Thing2();
-      t.moveStatic(100 + i*20, 160);
-      sprites.add(t);
-    }
-    for (int i = 0; i < 3; i++) {
-      Thing2 t = new Thing2();
-      t.moveStatic(100 + i*20, 180);
-      sprites.add(t);
-    }
-    for (int i = 0; i < 3; i++) {
-      Thing2 t = new Thing2();
-      t.moveStatic(100 + i*20, 200);
-      sprites.add(t);
+    /*
+    for (int j = 0; j < 5; j++) {
+      for (int i = 0; i < 3; i++) {
+        Thing2 t = new Thing2();
+        t.move(100 + i*20, 160 + j*20);
+        t.rest();
+        sprites.add(t);
+      }
     }
     for (int i = 0; i < 5; i++) {
       Thing3 t = new Thing3();
-      t.moveStatic(200, 220 + i * 20);
+      t.move(200, 220 + i * 20);
+      t.rest();
       sprites.add(t);
     }
+    */
+    Ground ground = new Ground();
+    sprites.add(ground);
   }
 
   public ProceduralNemesis() {
@@ -103,6 +116,10 @@ public class ProceduralNemesis extends JPanel {
     registerKey("8", KEY_8);
     registerKey("9", KEY_9);
     registerKey("0", KEY_0);
+    registerKey("7", "shift", KEY_SH7);
+    addMouseListener(mouseInteractor);
+    addMouseMotionListener(mouseInteractor);
+    addMouseWheelListener(mouseInteractor);
     setFocusable(true);
     requestFocus();
   }
@@ -137,20 +154,62 @@ public class ProceduralNemesis extends JPanel {
   void dbgShape(Color c, Shape s, int life, String str) {
     sprites.add(new DbgShape(c, s, life, str));
   }
+
+  final MouseAdapter mouseInteractor = new MouseAdapter() {
+    int clickAnchorX, clickAnchorY;
+    int anchorX, anchorY;
+    public void mousePressed(MouseEvent me) {
+      clickAnchorX = anchorX = me.getX();
+      clickAnchorY = anchorY = me.getY();
+    }
+    public void mouseReleased(MouseEvent me) {
+    }
+    public void mouseMoved(MouseEvent me) {
+    }
+    public void mouseDragged(MouseEvent me) {
+      int dx = me.getX() - anchorX;
+      int dy = me.getY() - anchorY;
+      transX += (float)(dx / mag);
+      transY += (float)(dy / mag);
+      anchorX = me.getX();
+      anchorY = me.getY();
+    }
+    public void mouseWheelMoved(MouseWheelEvent me) {
+      int mx = me.getX();
+      int my = me.getY();
+      float oMag = mag;
+      float xx = transX + mx / mag;
+      float yy = transY + my / mag;
+      float dmag = (float)Math.pow(10, Math.log10(mag))*0.1f;
+      if (me.getWheelRotation() < 0) {
+        mag += dmag;
+      } else if (mag > 1.0f) {
+        mag -= dmag;
+      }
+      // o' = x - r'*((x-o)/r)
+      transX = xx - mag * ((xx - transX)/oMag);
+      transY = yy - mag * ((yy - transY)/oMag);
+    }
+  };
   
   /////////////////////////////////////////////////////////////////////////////
   // User interaction, loops, events and stuff
   //
   
   void registerKey(String keyName, final int keyIndex) {
-    getInputMap().put(KeyStroke.getKeyStroke("pressed " + keyName), "p"+keyName);
-    getActionMap().put("p"+keyName, new AbstractAction() {
+    registerKey(keyName, null, keyIndex);
+  }
+  void registerKey(String keyName, String modifier, final int keyIndex) {
+    final String m = (modifier == null ? "" : (modifier + " "));
+    final String id = m + keyName;
+    getInputMap().put(KeyStroke.getKeyStroke(m + "pressed " + keyName), "p"+id);
+    getActionMap().put("p"+id, new AbstractAction() {
       @Override
       public void actionPerformed(ActionEvent a) {
         keyStatus[keyIndex] = true;
       }});
-    getInputMap().put(KeyStroke.getKeyStroke("released " + keyName), "r"+keyName);
-    getActionMap().put("r"+keyName, new AbstractAction() {
+    getInputMap().put(KeyStroke.getKeyStroke(m + "released " + keyName), "r"+id);
+    getActionMap().put("r"+id, new AbstractAction() {
       @Override
       public void actionPerformed(ActionEvent a) {
         keyStatus[keyIndex] = false;
@@ -192,7 +251,7 @@ public class ProceduralNemesis extends JPanel {
 
     
     if (keyStatus[KEY_ESC]) {
-      Log.println("---------------------------");
+      Log.println("---------------------------  RESET");
       sprites.clear();
       setupScene();
       keyStatus[KEY_ESC] = false;
@@ -210,32 +269,55 @@ public class ProceduralNemesis extends JPanel {
       keyStatus[KEY_3] = false;
     }
 
+    if (keyStatus[KEY_SH7]) {
+      if (clonedSprites != null) {
+        Log.log = true;
+        Log.println("..............................  TIMEWARP");
+        sprites.clear();
+        player = null;
+        thing = null;
+        for (Sprite s : clonedSprites) {
+          try {
+            Sprite cs = (Sprite)s.clone();
+            sprites.add(cs);
+            if (cs instanceof Player) player = (Player)cs;
+            if (cs instanceof Thing) thing = (Thing)cs;
+          } catch (CloneNotSupportedException e) {
+            e.printStackTrace();
+          }
+        }
+        Log.log = debugShow;
+      }
+      keyStatus[KEY_SH7] = false;
+    }
     if (keyStatus[KEY_7]) {
-      Log.println("..............................  TIMEWARP");
-      sprites.clear();
-      for (Sprite s : clonedSprites) {
+      Log.log = true;
+      Log.println("..............................  TIMECAPSULING");
+      clonedSprites = new ArrayList<Sprite>();
+      for (Sprite s : sprites) {
         try {
-          Sprite cs = (Sprite)s.clone();
-          sprites.add(cs);
-          if (cs instanceof Player) player = (Player)cs;
-          if (cs instanceof Thing) thing = (Thing)cs;
+          clonedSprites.add((Sprite)s.clone());
         } catch (CloneNotSupportedException e) {
-          // TODO Auto-generated catch block
           e.printStackTrace();
         }
       }
+      Log.log = debugShow;
       keyStatus[KEY_7] = false;
     }
+      
     if (keyStatus[KEY_8]) {
       debugShow = !debugShow;
-      Log.log = debugShow;
+      Log.log = true;
       Log.println("..............................  DEBUG " + (debugShow ? "ON" : "OFF"));
+      Log.log = debugShow;
       keyStatus[KEY_8] = false;
     }
     if (keyStatus[KEY_9]) {
       debugMode = !debugMode;
       debugShow = debugMode;
+      Log.log = true;
       Log.println("..............................  DEBUGMODE " + (debugMode ? "ON" : "OFF"));
+      Log.log = debugShow;
       keyStatus[KEY_9] = false;
     }
     if (keyStatus[KEY_0]) {
@@ -270,15 +352,6 @@ public class ProceduralNemesis extends JPanel {
     shot.shape.collisionGroups = (1<<0);
     shot.shape.collisionFilters = (1<<0);
     sprites.add(shot);
-    
-    clonedSprites = new ArrayList<Sprite>();
-    for (Sprite s : sprites) {
-      try {
-        clonedSprites.add((Sprite)s.clone());
-      } catch (CloneNotSupportedException e) {
-        e.printStackTrace();
-      }
-    }
   }
 
   //////////////
@@ -299,7 +372,7 @@ public class ProceduralNemesis extends JPanel {
     debugStep = false;
 
     for (Sprite sprite : sprites) {
-      sprite.update();
+      sprite.tick();
       if (sprite.gone) {
         deadSprites.add(sprite);
         continue;
@@ -347,22 +420,21 @@ public class ProceduralNemesis extends JPanel {
                 phyMTV.x,phyMTV.y,phyMTV.len()
             );
             if (debugShow) {
-              dbgMark(Color.white, phyColl, 10, null);
-              dbgLine(Color.red, sprA.getVec(), phyMTV.assign(new Vec2f()).mul(-5f).add(sprA.getVec()), 10, null);
-              dbgMark(Color.red, sprA.getVec(),  10, null);
-              dbgLine(Color.blue, sprB.getVec(), phyMTV.assign(new Vec2f()).mul(5f).add(sprB.getVec()), 10, null);
-              dbgMark(Color.blue, sprB.getVec(),  10, null);
+              dbgMark(Color.white, phyColl, 1, null);
+              dbgLine(Color.yellow, sprA.getVec(), phyMTV.assign(new Vec2f()).mul(-5f).add(sprA.getVec()), 1, null);
+              dbgMark(Color.yellow, sprA.getVec(), 1, "A");
+              dbgLine(Color.cyan,   sprB.getVec(), phyMTV.assign(new Vec2f()).mul(+5f).add(sprB.getVec()), 1, null);
+              dbgMark(Color.cyan,   sprB.getVec(), 1, "B");
             }
             
-            float inviMassSum = 1f; // TODO PETER1f/(sprA.imass + sprB.imass);
-
-            sprA.shape.impulse(phyColl, phyMTV, -sprB.imass * inviMassSum);
-            sprB.shape.impulse(phyColl, phyMTV, sprA.imass * inviMassSum);
+            float inviMassSum = 2f/(sprA.imass + sprB.imass);
+            if (sprA.imass > 0) sprA.shape.impulse(phyColl, phyMTV, -sprA.imass * inviMassSum);
+            if (sprB.imass > 0) sprB.shape.impulse(phyColl, phyMTV, sprB.imass * inviMassSum);
             Log.printf("[resolv %d] postcollision obj:%d[%+.1f,%+.1f]%s / %d[%+.1f,%+.1f]%s",
               iteration,
               sprA.id, sprA.shape.getX(), sprA.shape.getY(), sprA.highVelocity ? "(HV)": "    ",
               sprB.id, sprB.shape.getX(), sprB.shape.getY(), sprB.highVelocity ? "(HV)": "    "
-        );
+            );
           }
         }
       }
@@ -393,10 +465,12 @@ public class ProceduralNemesis extends JPanel {
     g.fillRect(0, 0, WIDTH, HEIGHT);
     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
     //g.setStroke(stroke);
-    //g.setTransform(AffineTransform.getScaleInstance(3, 3));
+    AffineTransform origTransform = g.getTransform();
+    g.translate(transX*mag, transY*mag);
     for (Sprite sprite : sprites) {
       sprite.paint(g);
     }
+    g.setTransform(origTransform);
   }
   
   /////////////////////////////////////////////////////////////////////////////
@@ -419,6 +493,25 @@ public class ProceduralNemesis extends JPanel {
       super.paint(g);
     }
   }
+  class Ground extends Sprite {
+    public Ground() {
+      ConvexShape s = new ConvexShape();
+      final float BIGNUM = 1000f;
+      s.addVertex(new Vec2f( 2f*BIGNUM, BIGNUM));
+      s.addVertex(new Vec2f( 2f*BIGNUM,-BIGNUM));
+      s.addVertex(new Vec2f(  0,       -BIGNUM));
+      s.addVertex(new Vec2f(  0,        BIGNUM));
+      s.solidify(2f*BIGNUM);
+      this.shape = s;
+      moveStatic(0, BIGNUM + HEIGHT-190f);
+      this.imass = 0;
+    }
+    @Override
+    public void paint(Graphics2D g) {
+      g.setColor(Color.gray);
+      super.paint(g);
+    }
+  } // class Thing
   class Thing extends Sprite {
     public Thing() {
       ConvexShape s = new ConvexShape();
@@ -519,10 +612,10 @@ public class ProceduralNemesis extends JPanel {
       for (int i = 0; i <= vcnt; i++) {
         Vec2f v1 = v.get(i % vcnt);
         Vec2f v2 = v.get((i+1) % vcnt);
-        g.drawLine((int)(v1.x), (int)(v1.y), (int)(v2.x), (int)(v2.y));
+        g.drawLine((int)(v1.x * mag), (int)(v1.y * mag), (int)(v2.x * mag), (int)(v2.y * mag));
       }
       if (descr != null) {
-        g.drawString(descr, (int)v.get(0).x, (int)v.get(0).y);
+        g.drawString(descr, (int)(v.get(0).x * mag), (int)(v.get(0).y * mag));
       }
     }
   } // class DbgShape
@@ -535,10 +628,10 @@ public class ProceduralNemesis extends JPanel {
     @Override
     public void paint(Graphics2D g) {
       g.setColor(colMix(c, colTrans, life/totalLife));
-      g.drawLine((int)x, (int)y, (int)tx, (int)ty);
-      g.fillOval((int)tx-2, (int)ty-2, 4,4);
+      g.drawLine((int)(x * mag), (int)(y * mag), (int)(tx * mag), (int)(ty * mag));
+      g.fillOval((int)(tx * mag-2), (int)(ty * mag-2), 4,4);
       if (descr != null) {
-        g.drawString(descr, (int)(x+tx)/2, (int)(y+ty)/2);
+        g.drawString(descr, (int)((x+tx) * mag)/2, (int)((y+ty) * mag)/2);
       }
     }
   } // class DbgLine
@@ -552,10 +645,10 @@ public class ProceduralNemesis extends JPanel {
     @Override
     public void paint(Graphics2D g) {
       g.setColor(colMix(c, colTrans, life/totalLife));
-      g.drawLine((int)(x-3), (int)(y-3), (int)(x+3), (int)(y+3));
-      g.drawLine((int)(x+3), (int)(y-3), (int)(x-3), (int)(y+3));
+      g.drawLine((int)(x * mag-3), (int)(y * mag-3), (int)(x * mag+3), (int)(y * mag+3));
+      g.drawLine((int)(x * mag+3), (int)(y * mag-3), (int)(x * mag-3), (int)(y * mag+3));
       if (descr != null) {
-        g.drawString(descr, (int)(x), (int)(y+20));
+        g.drawString(descr, (int)(x * mag), (int)(y * mag+20));
       }
     }
   } // class DbgMark
@@ -577,10 +670,12 @@ public class ProceduralNemesis extends JPanel {
       paintShape(g);
       //paintShapeVerlet(g, 0, 0);
       //paintShapeNormals(g, shape, 0, 0);
-      g.setColor(Color.gray);
-      if (debugShow) paintShape(g, oobShape);
+      if (debugShow) {
+        g.setColor(Color.gray);
+        paintShape(g, oobShape);
+      }
     }
-    public void update() { 
+    public void tick() { 
       if (life > 0) {
         life--; 
         if (life == 0) gone = true; 
@@ -612,6 +707,9 @@ public class ProceduralNemesis extends JPanel {
       shape.rotateTo(ang);
       shape.shapify();
     }
+    public void rest() {
+      shape.getVerlet().rest();
+    }
     public Verlet getVerlet() {      
       return shape.getVerlet();
     }
@@ -619,12 +717,13 @@ public class ProceduralNemesis extends JPanel {
     Vec2f t2 = new Vec2f();
     public void paintShape(Graphics2D g, Shape s) { paintShape(g,s,0,0); }
     public void paintShape(Graphics2D g) { paintShape(g,shape,0,0); }
+    public void paintShape(Graphics2D g, float dx, float dy) { paintShape(g,shape,dx,dy); }
     public void paintShape(Graphics2D g, Shape s, float dx, float dy) {
       if (s == null) return;
       final int vcnt = s.countVertices();
       for (int i = 0; i < vcnt; i++) {
         s.getEdgeVertices(i, t1, t2);
-        g.drawLine((int)(t1.x+dx), (int)(t1.y+dy), (int)(t2.x+dx), (int)(t2.y+dy));
+        g.drawLine((int)((t1.x+dx) * mag), (int)((t1.y+dy) * mag), (int)((t2.x+dx) * mag), (int)((t2.y+dy) * mag));
       }
     }
     public void paintShapeNormals(Graphics2D g, ConvexShape s, float dx, float dy) {
@@ -637,15 +736,15 @@ public class ProceduralNemesis extends JPanel {
         float cy = 0.5f*(v1.y + v2.y);
         float nx = -(v2.y - v1.y);
         float ny =  (v2.x - v1.x);
-        g.drawLine((int)(cx+dx), (int)(cy+dy), (int)(cx+nx+dx), (int)(cy+ny+dy));
+        g.drawLine((int)((cx+dx) * mag), (int)((cy+dy) * mag), (int)((cx+nx+dx) * mag), (int)((cy+ny+dy) * mag);
       }
     }
     public Color colMix(Color c1, Color c2, float t) {
       float it = (1f-t);
       return new Color(
-          (int)(t*c1.getRed() + it*c2.getRed()) & 0xff,
+          (int)(t*c1.getRed()   + it*c2.getRed())   & 0xff,
           (int)(t*c1.getGreen() + it*c2.getGreen()) & 0xff,
-          (int)(t*c1.getBlue() + it*c2.getBlue()) & 0xff,
+          (int)(t*c1.getBlue()  + it*c2.getBlue())  & 0xff,
           (int)(t*c1.getAlpha() + it*c2.getAlpha()) & 0xff);
     }
     public Object clone() throws CloneNotSupportedException {
@@ -707,7 +806,7 @@ public class ProceduralNemesis extends JPanel {
       if (spr.highVelocity) {
         calcVelocityOOB(spr);
       }
-    }
+    } // checkHighVelocity
 
     public Vec2f calcCollisionPoint(Vec2f edgeS, Vec2f edgeE, Vec2f nearVert, Vec2f dst) {
       Vec2f t1 = vectors[vix++];
@@ -718,7 +817,7 @@ public class ProceduralNemesis extends JPanel {
       if (t < 0) t = 0; else if (t*t > t2.lenSq()) t = t2.len();
       dst = edgeS.assign(dst).add(t*t1.x, t*t1.y);
       return dst;
-    }
+    } // calcCollisionPoint
     
     float collides(Sprite sprA, Sprite sprB, Vec2f mtvA, Vec2f mtvB, Vec2f mtv, Vec2f collision) {
       vix = 0;
@@ -742,45 +841,51 @@ public class ProceduralNemesis extends JPanel {
       } else {
         return 0f;
       }
-    }
-    
-    // broad phase:  create aabb' of aabb(position) + aabb(position + velocity)
-    // narrow phase: project shape on velocity vectors normal = front and back sides of obb,
-    //               top and bottom of obb is velocity translation vector,
-    //               use this obb to find out where collision occurs
+    } // collides
     
     boolean intersectAABB(Sprite spr1, Sprite spr2) {
       Shape s1 = spr1.shape;
       Shape s2 = spr2.shape;
+      float s1aabbminx = s1.aabbMin.x;
+      float s1aabbminy = s1.aabbMin.y;
+      float s1aabbmaxx = s1.aabbMax.x;
+      float s1aabbmaxy = s1.aabbMax.y;
+      float s2aabbminx = s2.aabbMin.x;
+      float s2aabbminy = s2.aabbMin.y;
+      float s2aabbmaxx = s2.aabbMax.x;
+      float s2aabbmaxy = s2.aabbMax.y;
+
       if (spr1.highVelocity) {
         float v1x = s1.getVX();
-        if (v1x < 0) s1.aabbMin.x += v1x;
-        else         s1.aabbMax.x += v1x;
+        if (v1x < 0) s1aabbminx += v1x;
+        else         s1aabbmaxx += v1x;
       }
       if (spr2.highVelocity) {
         float v2x = s2.getVX();
-        if (v2x < 0) s2.aabbMin.x += v2x;
-        else         s2.aabbMax.x += v2x;
+        if (v2x < 0) s2aabbminx += v2x;
+        else         s2aabbmaxx += v2x;
       }
 
-      boolean overlapX = (s1.aabbMin.x < s2.aabbMax.x) && (s2.aabbMin.x < s1.aabbMax.x);
-
+      boolean overlapX = (s1aabbminx < s2aabbmaxx) && (s2aabbminx < s1aabbmaxx);
       if (!overlapX) return false;
+
       if (spr1.highVelocity) {
         float v1y = s1.getVY();
-        if (v1y < 0) s1.aabbMin.y += v1y;
-        else         s1.aabbMax.y += v1y;
+        if (v1y < 0) s1aabbminy += v1y;
+        else         s1aabbmaxy += v1y;
       }
       if (spr2.highVelocity) {
         float v2y = s2.getVY();
-        if (v2y < 0) s2.aabbMin.y += v2y;
-        else         s2.aabbMax.y += v2y;
+        if (v2y < 0) s2aabbminy += v2y;
+        else         s2aabbmaxy += v2y;
       }
 
-      boolean overlapY = (s1.aabbMin.y < s2.aabbMax.y) && (s2.aabbMin.y < s1.aabbMax.y);
+      //dbgRect(spr1.highVelocity ? Color.cyan : Color.blue, new Vec2f(s1aabbminx, s1aabbminy), s1aabbmaxx-s1aabbminx, s1aabbmaxy-s1aabbminy, 1, null);
+      //dbgRect(spr2.highVelocity ? Color.cyan : Color.blue, new Vec2f(s2aabbminx, s2aabbminy), s2aabbmaxx-s2aabbminx, s2aabbmaxy-s2aabbminy, 1, null);
 
-      return overlapY;
-    }
+      boolean overlapY = (s1aabbminy < s2aabbmaxy) && (s2aabbminy < s1aabbmaxy);
+      return overlapY;// && overlapX;
+    } // intersectAABB
     
     void calcVelocityOOB(Sprite spr) {
       Shape s = spr.shape;
@@ -831,7 +936,7 @@ public class ProceduralNemesis extends JPanel {
       p4.add(vmaxx, vmaxy).add(pvminx, pvminy);
       spr.highVelBodyX = (maxV - minV) * spr.velN.x;
       spr.highVelBodyY = (maxV - minV) * spr.velN.y;
-    }
+    } // calcVelocityOOB
     
     float intersectSAT(Sprite spr1, Sprite spr2, Vec2f mtv1, Vec2f mtv2, Vec2f mtv, Vec2f collision) {
       Shape s1 = spr1.shape;
@@ -862,7 +967,7 @@ public class ProceduralNemesis extends JPanel {
       if (pene1 == 0) {
         // If highvel collision was registered but stationary sat found nothing, restore state
         if (collHV1) {
-          if (debugShow) dbgShape(Color.magenta, s1, 1, "NOCOLL");
+          if (debugShow) dbgShape(Color.red, s1, 1, "NOCOLL");
           Log.printf("[HV] registered but no static collision, restore %d from %+.1f,%+.1f to %+.1f,%+.1f", spr1.id,
               s1.getX(), s1.getY(), (origV1.x + origV2.x)*0.5f,  (origV1.y + origV2.y)*0.5f);
           ((VStick)s1.getVerlet()).restore(origV1, origV1o, origV2, origV2o);
@@ -870,7 +975,7 @@ public class ProceduralNemesis extends JPanel {
           if (debugShow) dbgShape(Color.cyan, s1, 1, "RESTORED");
         }
         if (collHV2) {
-          if (debugShow) dbgShape(Color.magenta, s2, 1, "NOCOLL");
+          if (debugShow) dbgShape(Color.red, s2, 1, "NOCOLL");
           Log.printf("[HV] registered but no static collision, restore %d from %+.1f,%+.1f to %+.1f,%+.1f", spr2.id,
               s2.getX(), s2.getY(), (origV1.x + origV2.x)*0.5f,  (origV1.y + origV2.y)*0.5f);
           ((VStick)s2.getVerlet()).restore(origV1, origV1o, origV2, origV2o);
@@ -883,7 +988,7 @@ public class ProceduralNemesis extends JPanel {
       if (pene2 == 0) {
         // If highvel collision was registered but stationary sat found nothing, restore state
         if (collHV1) {
-          if (debugShow) dbgShape(Color.magenta, s1, 1, "NOCOLL");
+          if (debugShow) dbgShape(Color.red, s1, 1, "NOCOLL");
           Log.printf("[HV] registered but no static collision, restore %d from %+.1f,%+.1f to %+.1f,%+.1f", spr1.id,
             s1.getX(), s1.getY(), (origV1.x + origV2.x)*0.5f,  (origV1.y + origV2.y)*0.5f);
           ((VStick)s1.getVerlet()).restore(origV1, origV1o, origV2, origV2o);
@@ -891,7 +996,7 @@ public class ProceduralNemesis extends JPanel {
           if (debugShow) dbgShape(Color.cyan, s1, 1, "RESTORED");
         }
         if (collHV2) {
-          if (debugShow) dbgShape(Color.magenta, s2, 1, "NOCOLL");
+          if (debugShow) dbgShape(Color.red, s2, 1, "NOCOLL");
           Log.printf("[HV] registered but no static collision, restore %d from %+.1f,%+.1f to %+.1f,%+.1f", spr2.id,
             s2.getX(), s2.getY(), (origV1.x + origV2.x)*0.5f,  (origV1.y + origV2.y)*0.5f);
           ((VStick)s2.getVerlet()).restore(origV1, origV1o, origV2, origV2o);
@@ -901,7 +1006,7 @@ public class ProceduralNemesis extends JPanel {
         return 0;
       }
       if (debugShow && (collHV1 || collHV2)) {
-        dbgShape(Color.red, collHV1 ? spr1.shape : spr2.shape);
+        dbgShape(Color.magenta, collHV1 ? s1 : s2, 1, null);
       }
       Log.printf("sat %d / %d found (pene1:%+.1f, pene2:%+.1f)", spr1.id, spr2.id, pene1, pene2);
 
@@ -924,12 +1029,13 @@ public class ProceduralNemesis extends JPanel {
         mtv2.assign(mtv);
       }
       
-      Log.printf("    %d / %d collision  pene:%+.1f  mtv:%+.1f,%+.1f", 
+      Log.printf("    %d / %d collision  pene:%+.1f  mtv:%+.1f,%+.1f  coll.xy:%+.1f,%+.1f", 
           spr1.id, spr2.id, pene1 < pene2 ? pene1 : pene2,
-          mtv.x, mtv.y);
+          mtv.x, mtv.y,
+          collision.x, collision.y);
 
       return pene1 < pene2 ? pene1 : pene2;
-    }
+    } // intersectSAT
 
     boolean highVelSAT(Sprite sprHV, Sprite spr) {
       Vec2f es = vectors[vix++]; 
@@ -970,8 +1076,12 @@ public class ProceduralNemesis extends JPanel {
           float trajDY = sprHV.vel.y * t;
           float oldx = sprHV.shape.getX();
           float oldy = sprHV.shape.getY();
+          // TODO PETER
+          // check up the rebounce vector
           sprHV.shape.moveStatic(trajDX, trajDY);
-          sprHV.shape.moveStatic(sprHV.velN.x * sprHV.shape.getVerlet().size * 0.5f, sprHV.velN.y * sprHV.shape.getVerlet().size * 0.5f);
+          sprHV.shape.moveStatic(
+            sprHV.velN.x * sprHV.shape.getVerlet().size * 0.5f, 
+            sprHV.velN.y * sprHV.shape.getVerlet().size * 0.5f);
           sprHV.shape.shapify();
           Log.printf("    [HV] COLLISION: spr pen:%+.1f, t:%+.1f, sprite translation dxy:%+.1f,%+.1f,from %+.1f,%+.1f to %+.1f,%+.1f", 
               peneHighVel, t, trajDX, trajDY, oldx, oldy, sprHV.shape.getX(), sprHV.shape.getY());
@@ -980,8 +1090,8 @@ public class ProceduralNemesis extends JPanel {
         if (trajFail) {
           if (debugShow) {
             Log.printf("    [HV] spr %d trajectory fail vel %+.1f,%+.1f", sprHV.id, sprHV.vel.x, sprHV.vel.y);
-            dbgLine(Color.magenta, frontVertex, sprHV.vel.assign(new Vec2f()).add(frontVertex));
-            dbgLine(Color.blue, es, ee);
+            dbgLine(Color.red, frontVertex, sprHV.vel.assign(new Vec2f()).add(frontVertex), 1, "fail: HV-dir");
+            dbgLine(Color.red, es, ee, 1, "fail: HV-edge");
           }
           return false;
         }
@@ -990,7 +1100,7 @@ public class ProceduralNemesis extends JPanel {
         return false;
       }
       return true;
-    }
+    } // highvelSat
     
     float sat(Shape sref, Shape sother, Vec2f otherVelHint, Vec2f mtv, Vec2f collEdgeS, Vec2f collEdgeE) {
       float minOverlap = Float.MAX_VALUE;
@@ -1037,10 +1147,10 @@ public class ProceduralNemesis extends JPanel {
       }
       if (debugShow) {
         Log.printf("        collision found, pene %+.1f", minOverlap);
-        if (collEdgeS != null) dbgLine(Color.pink, collEdgeS, collEdgeE, 10, null);  
+        if (collEdgeS != null) dbgLine(Color.magenta, collEdgeS, collEdgeE, 1, null);  
       }
       return minOverlap;
-    }
+    } // sat
 
     float getTrajectoryEdgeCrossing(Vec2f s, Vec2f d, Vec2f es, Vec2f ee) {
       float denom = (-d.x) * (es.y - ee.y) - (-d.y) * (es.x - ee.x);
@@ -1112,15 +1222,13 @@ public class ProceduralNemesis extends JPanel {
       y += vy*dt;
     }
     public void move(float dx, float dy) {
-      x += dx;
-      y += dy;
+      x += dx; y += dy;
     }
     public void moveTo(float x, float y) {
-      this.x = x;
-      this.y = y;
+      this.x = x; this.y = y;
     }
     public void moveStatic(float dx, float dy) {
-      x += dx; y += dy; ox = x; oy = y;
+      x += dx; y += dy; ox += dx; oy += dy;
     }
     public void rotate(float dang) {}
     public void rotateStatic(float dang) {}
@@ -1204,7 +1312,7 @@ public class ProceduralNemesis extends JPanel {
       v1.moveStatic(dx, dy);
       v2.moveStatic(dx, dy);
       x += dx; y += dy;
-      ox = x; oy = y;
+      ox += dx; oy += dy;
       updateCenter();
     }
     public void moveTo(float x, float y) {
@@ -1225,10 +1333,15 @@ public class ProceduralNemesis extends JPanel {
       v2.y = y-fy;
     }
     public void rotateStatic(float dang) {
+      float o1x = v1.x;
+      float o1y = v1.y;
+      float o2x = v2.x;
+      float o2y = v2.y;
       rotate(dang);
-      v1.ox = v1.x; v1.oy = v1.y;
-      v2.ox = v2.x; v2.oy = v2.y;
-      ox = x; oy = y;
+      v1.ox += (v1.x - o1x);
+      v1.oy += (v1.y - o1y);
+      v2.ox += (v2.x - o2x);
+      v2.oy += (v2.y - o2y);
     }
     public void rotateTo(float ang) {
       final float cos = (float)Math.cos(ang);
@@ -1326,7 +1439,6 @@ public class ProceduralNemesis extends JPanel {
       verlet.move(dx, dy); 
     }
     public void moveStatic(float dx, float dy) {
-      resting = false;
       verlet.moveStatic(dx, dy); 
     }
     public void moveTo(float x, float y) {
@@ -1338,13 +1450,19 @@ public class ProceduralNemesis extends JPanel {
       verlet.rotate(dang); 
     }
     public void rotateStatic(float dang) {
-      resting = false;
       verlet.rotateStatic(dang); 
     }
     public void rotateTo(float ang) {
       resting = false;
       verlet.rotateTo(ang); 
     }
+    public int subShapeCount() {
+      return 0;
+    }
+    public Shape getSubShape(int ix) {
+      return this;
+    }
+
     abstract int countVertices();
     abstract Vec2f getVertex(int ix);
     abstract Vec2f getEdge(int edge, Vec2f dst);
@@ -1357,7 +1475,11 @@ public class ProceduralNemesis extends JPanel {
     abstract Vec2f findNearestVertex(Vec2f edgeS, Vec2f edgeE, Vec2f norm, Vec2f dst);
     abstract Vec2f findFarthestVertexInDirection(Vec2f d);
     public Object clone() throws CloneNotSupportedException {
-      return super.clone();
+      Shape s = (Shape)super.clone();
+      if (verlet != null) s.verlet = (Verlet)verlet.clone();
+      s.aabbMin = (Vec2f)aabbMin.clone();
+      s.aabbMax = (Vec2f)aabbMax.clone();
+      return s;
     }
   } // class Shape
   class CompoundShape extends Shape {
@@ -1365,17 +1487,17 @@ public class ProceduralNemesis extends JPanel {
     List<Integer> vertexCounts = new ArrayList<Integer>();
     List<float[]> dimOffsets = new ArrayList<float[]>();
     int vertices;
-    VStick vstick; // TODO instantiate this
+    VStick vstick;
 
     public void addShape(Shape s, float dx, float dy, float dang) {
       shapes.add(s);
       dimOffsets.add(new float[]{dx,dy,dang});
       rehashShapes();
     }
-    public int shapeCount() {
+    public int subShapeCount() {
       return shapes.size();
     }
-    public Shape getShape(int ix) {
+    public Shape getSubShape(int ix) {
       return shapes.get(ix);
     }
 
@@ -1596,7 +1718,7 @@ public class ProceduralNemesis extends JPanel {
 
     public Object clone() throws CloneNotSupportedException {
       ConvexShape clone = (ConvexShape)super.clone();
-      if (verlet != null) clone.verlet = (VStick)verlet.clone();
+      if (verlet != null) clone.vstick = (VStick)clone.verlet;
       clone.t1 = (Vec2f)t1.clone();
       clone.t2 = (Vec2f)t2.clone();
       clone.defVert = new ArrayList<Vec2f>();
