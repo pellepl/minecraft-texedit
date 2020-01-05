@@ -11,6 +11,12 @@ import javax.swing.*;
 
 import com.pelleplutt.util.*;
 
+
+// TODO: for highvelocity, find all objects that collides with the OOB
+// and select the one with lowest translation along velocity for collision
+// TODO: first find all collisions, then apply impulses
+
+
 public class ProceduralNemesis extends JPanel {
   static final int LOOP_DELAY_MS = 20;
   static final float COLLISION_MIN_PENE = 0.01f;
