@@ -429,6 +429,7 @@ public class ProceduralNemesis extends JPanel {
           if (sprB.shape == null) continue;
           if ((sprA.shape.collisionGroups & sprB.shape.collisionFilters) +
               (sprA.shape.collisionFilters & sprB.shape.collisionGroups) != 0) continue;
+          if (sprA.shape.resting && sprB.shape.resting) continue;
           float pene = collider.collides(sprA, sprB, phyMTVA, phyMTVB, phyMTV, phyColl);
           if (pene > 0) {
             haveCollisions = true;
