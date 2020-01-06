@@ -25,6 +25,9 @@ public class ProceduralNemesis extends JPanel {
   static final int ITERATIONS = 12;
   static final float THING_DEF_ROT = 3.137328f;//3.14f*1.35f;
   static final float NEAR_ZERO = 0.001f;
+
+  static final float FMAX = Float.MAX_VALUE;
+  static final float FMIN = -FMAX;
   
   static final int KEY_UP = 0;
   static final int KEY_DOWN = 1;
@@ -404,6 +407,16 @@ public class ProceduralNemesis extends JPanel {
       }
     }
 
+
+    // TODO
+    // Find all high velocity sprites.
+    // Test all high velocity sprites and find least translation vector (if any) amongst possible collisions.
+    // Move all high velocity sprites according to least translation vector.
+    // Resolve loop:
+    //   Test all sprites for collisions. Record collision data.
+    //   Apply all found collision data.
+    //   Update constraints.
+    //   Repeat.
     final int spriteCount = sprites.size();
     while (iteration-- > 0) {
       if (debugShow) Log.printf("..........................  ITERATION %d", iteration);
@@ -889,8 +902,8 @@ public class ProceduralNemesis extends JPanel {
         else         s2aabbmaxy += v2y;
       }
 
-      //dbgRect(spr1.highVelocity ? Color.cyan : Color.blue, new Vec2f(s1aabbminx, s1aabbminy), s1aabbmaxx-s1aabbminx, s1aabbmaxy-s1aabbminy, 1, null);
-      //dbgRect(spr2.highVelocity ? Color.cyan : Color.blue, new Vec2f(s2aabbminx, s2aabbminy), s2aabbmaxx-s2aabbminx, s2aabbmaxy-s2aabbminy, 1, null);
+//      dbgRect(spr1.highVelocity ? Color.cyan : Color.blue, new Vec2f(s1aabbminx, s1aabbminy), s1aabbmaxx-s1aabbminx, s1aabbmaxy-s1aabbminy, 1, null);
+//      dbgRect(spr2.highVelocity ? Color.cyan : Color.blue, new Vec2f(s2aabbminx, s2aabbminy), s2aabbmaxx-s2aabbminx, s2aabbmaxy-s2aabbminy, 1, null);
 
       boolean overlapY = (s1aabbminy < s2aabbmaxy) && (s2aabbminy < s1aabbmaxy);
       return overlapY;// && overlapX;
@@ -908,10 +921,10 @@ public class ProceduralNemesis extends JPanel {
       
       // project shape onto normalized velocity vector and perped normalized velocity vector
       final int sVertices = s.countVertices();
-      float minV = Float.MAX_VALUE; 
-      float maxV = Float.MIN_VALUE;
-      float minPV = Float.MAX_VALUE; 
-      float maxPV = Float.MIN_VALUE;
+      float minV = FMAX;
+      float maxV = FMIN;
+      float minPV = FMAX;
+      float maxPV = FMIN;
       Vec2f refVertex = s.getVertex(0); // any vertex will do
       for (int i = 1; i < sVertices; i++) {
         s.getVertex(i).assign(tmp).sub(refVertex);
@@ -1070,7 +1083,7 @@ public class ProceduralNemesis extends JPanel {
           // iterate through edges to find the best edge
           Log.println(String.format("         BAD SAT EDGE t:%f, e %+.1f,%+.1f--%+.1f,%+.1f", t, es.x, es.y, ee.x, ee.y));
           if (debugShow) dbgLine(Color.red, es, ee, 1, "BAD");
-          t = Float.MAX_VALUE;
+          t = FMAX;
           Vec2f esCand = vectors[vix++]; 
           Vec2f eeCand = vectors[vix++]; 
           for (int i = 0; i < spr.shape.countVertices(); i++) {
@@ -1082,7 +1095,7 @@ public class ProceduralNemesis extends JPanel {
               eeCand.assign(ee);
             }
           }
-          if (t == Float.MAX_VALUE) return false; // straight out impossible if the shapes are convex
+          if (t == FMAX) return false; // straight out impossible if the shapes are convex
           Log.println(String.format("         NEW SAT EDGE t:%f, e %+.1f,%+.1f--%+.1f,%+.1f", t, es.x, es.y, ee.x, ee.y));
           if (debugShow) dbgLine(Color.green, es, ee, 1, "NEW");
         }
@@ -1123,7 +1136,7 @@ public class ProceduralNemesis extends JPanel {
     } // highvelSat
     
     float sat(Shape sref, Shape sother, Vec2f otherVelHint, Vec2f mtv, Vec2f collEdgeS, Vec2f collEdgeE) {
-      float minOverlap = Float.MAX_VALUE;
+      float minOverlap = FMAX;
       final int srefVertices = sref.countVertices();
       Vec2f edgeS = vectors[vix++];
       Vec2f edgeE = vectors[vix++];
@@ -1182,9 +1195,9 @@ public class ProceduralNemesis extends JPanel {
   
   static class Projection extends Vec2f {
     public Vec2f nearestVertex;
-    float minDist = Float.MAX_VALUE;
+    float minDist = FMAX;
     public Projection() {reset();}
-    public void reset() { x = Float.MAX_VALUE; y = -Float.MAX_VALUE; nearestVertex = null; minDist = Float.MAX_VALUE;}
+    public void reset() { x = FMAX; y = FMIN; nearestVertex = null; minDist = FMAX;}
     public void addDot(float d) {
       if (d < x) x = d;
       if (d > y) y = d;
@@ -1564,8 +1577,8 @@ public class ProceduralNemesis extends JPanel {
       final float x = vstick.getX();
       final float y = vstick.getY();
       final int shapeCount = shapes.size();
-      aabbMin.x = aabbMin.y = Float.MAX_VALUE;
-      aabbMax.x = aabbMax.y = Float.MIN_VALUE;
+      aabbMin.x = aabbMin.y = FMAX;
+      aabbMax.x = aabbMax.y = FMIN;
       for (int ix = 0; ix < shapeCount; ix++) {
         Shape s = shapes.get(ix);
         float[] dimOffset = dimOffsets.get(ix);
@@ -1574,8 +1587,8 @@ public class ProceduralNemesis extends JPanel {
         s.shapify();
         if (s.aabbMin.x < aabbMin.x) aabbMin.x = s.aabbMin.x;
         if (s.aabbMin.y < aabbMin.y) aabbMin.y = s.aabbMin.y;
-        if (s.aabbMin.x > aabbMax.x) aabbMax.x = s.aabbMin.x;
-        if (s.aabbMin.y > aabbMax.y) aabbMax.y = s.aabbMin.y;
+        if (s.aabbMax.x > aabbMax.x) aabbMax.x = s.aabbMax.x;
+        if (s.aabbMax.y > aabbMax.y) aabbMax.y = s.aabbMax.y;
       }
     }
     public void impulse(Vec2f collision, Vec2f movement, float factor) {
@@ -1678,8 +1691,8 @@ public class ProceduralNemesis extends JPanel {
       final float yframeO  = vstick.v1.y;
       final float yframeCY = vstick.v2.x - vstick.v1.x;
       final int verts = countVertices();
-      aabbMin.x = aabbMin.y = Float.MAX_VALUE;
-      aabbMax.x = aabbMax.y = Float.MIN_VALUE;
+      aabbMin.x = aabbMin.y = FMAX;
+      aabbMax.x = aabbMax.y = FMIN;
       for (int i = 0; i < verts; i++) {
         Vec2f def = defVert.get(i);
         Vec2f v = vert.get(i);
@@ -1709,7 +1722,7 @@ public class ProceduralNemesis extends JPanel {
     }
 
     public Vec2f findNearestVertex(Vec2f edgeS, Vec2f edgeE, Vec2f norm, Vec2f dst) {
-      float minDist = Float.MAX_VALUE;
+      float minDist = FMAX;
       for (Vec2f v : vert) {
         t1 = edgeS.assign(t1).add(norm);
         t2 = edgeE.assign(t2).sub(norm);
