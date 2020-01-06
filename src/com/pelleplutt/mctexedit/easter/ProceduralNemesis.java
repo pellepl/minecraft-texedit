@@ -1108,9 +1108,7 @@ public class ProceduralNemesis extends JPanel {
           float oldy = sprHV.shape.getY();
           sprHV.shape.moveStatic(trajDX, trajDY);
           sprHV.rest();
-          sprHV.shape.move(
-            sprHV.velN.x * sprHV.shape.getVerlet().size * 0.5f, 
-            sprHV.velN.y * sprHV.shape.getVerlet().size * 0.5f);
+          sprHV.shape.move(sprHV.highVelBodyX, sprHV.highVelBodyY);
           sprHV.shape.shapify();
           if (debugShow) {
             dbgLine(Color.yellow, new Vec2f(oldx, oldy), new Vec2f(oldx+sprHV.vel.x, oldy+sprHV.vel.y), 1, "HV velocity");
