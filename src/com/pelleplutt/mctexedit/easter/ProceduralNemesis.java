@@ -24,6 +24,10 @@ X,Y:    -202.2084,+281.6925
 ang:    +0.0000
 */
 
+// TODO
+// * Place a sprite in "resting list" when it becomes resting
+// * AABB tree
+
 public class ProceduralNemesis extends JPanel {
   static final int LOOP_DELAY_MS = 20;
   static final float COLLISION_MIN_PENE = 0.01f;
@@ -94,11 +98,11 @@ public class ProceduralNemesis extends JPanel {
     enemy.rest();
     sprites.add(enemy);
     /**/ 
-    for (int j = 0; j < 10; j++) {
-      for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 2; j++) {
+      for (int i = 0; i < 2; i++) {
         Sprite t = new Thing2();
         t.move(160 + i*16, 160 + j*20 + ((i&1)==0?10:0));
-        t.rotateTo(25+i);
+        t.rotateTo(25*j+(i+1)*73);
         t.rest();
         sprites.add(t);
       }
@@ -185,13 +189,17 @@ public class ProceduralNemesis extends JPanel {
       dragged = false;
     }
     public void mouseReleased(MouseEvent me) {
-      if (me.getButton() == MouseEvent.BUTTON1 && !dragged) {
-        float xx = -transX + clickAnchorX / mag;
-        float yy = -transY + clickAnchorY / mag;
-        Vec2f click = new Vec2f(xx,yy);
-        Vec2f c = new Vec2f();
-        Sprite sel = null;
-        float d = FMAX;
+      if (dragged) {
+        dragged = false;
+        return;
+      }
+      float xx = -transX + clickAnchorX / mag;
+      float yy = -transY + clickAnchorY / mag;
+      Vec2f click = new Vec2f(xx,yy);
+      Vec2f c = new Vec2f();
+      Sprite sel = null;
+      float d = FMAX;
+      synchronized (sprites) {
         for (Sprite s : sprites) {
           if (s.shape == null) continue;
           float dist = s.shape.getCenter(c).distToSq(click);
@@ -200,17 +208,26 @@ public class ProceduralNemesis extends JPanel {
             d = dist;
           }
         }
-        if (sel != null) {
+      }
+      if (sel == null) return;
+      if (me.getButton() == MouseEvent.BUTTON1) {
+        synchronized (sprites) {
           if (debugMode) {
             dbgShape(Color.white, sel.shape, 1, "ID:" + sel.id);
           } else {
             dbgShape(Color.white, sel.shape);
           }
-          sel.shape.getCenter(c);
-          System.out.format("ID:\t%d\n",sel.id);
-          System.out.format("X,Y:\t%+.4f,%+.4f\n",c.x,c.y);
-          System.out.format("ang:\t%+.4f\n",sel.shape.angle());
         }
+        sel.shape.getCenter(c);
+        System.out.format("ID:\t%d\n",sel.id);
+        System.out.format("X,Y:\t%+.4f,%+.4f\n",c.x,c.y);
+        System.out.format("ang:\t%+.4f\n",sel.shape.angle());
+      } else if (me.getButton() == MouseEvent.BUTTON3) {
+        synchronized (sprites) {
+          dbgShape(Color.green, sel.shape);
+        }
+        sel.shape.setGravity(0, 0.5f);
+        sel.shape.move(0, 0.5f);
       }
       dragged = false;
     }
@@ -403,7 +420,7 @@ public class ProceduralNemesis extends JPanel {
         player.shape.getY() + sdy*15.f);
     shot.rotateStatic(player.shape.angle());
     shot.rest();
-    final float speed = 32f;
+    final float speed = 20f;
     shot.move(sdx*speed, sdy*speed);
     shot.life = 40;
     shot.shape.setInverseFriction(0.975f);
@@ -429,16 +446,17 @@ public class ProceduralNemesis extends JPanel {
 
     debugStep = false;
 
-    for (Sprite sprite : sprites) {
-      sprite.tick();
-      if (sprite.gone) {
-        deadSprites.add(sprite);
-        continue;
+    synchronized (sprites) {
+      for (Sprite sprite : sprites) {
+        sprite.tick();
+        if (sprite.gone) {
+          deadSprites.add(sprite);
+          continue;
+        }
       }
-    }
-
-    while (!deadSprites.isEmpty()) {
-      sprites.remove(deadSprites.remove(0));
+      while (!deadSprites.isEmpty()) {
+        sprites.remove(deadSprites.remove(0));
+      }
     }
 
     final int spriteCount = sprites.size();
@@ -511,8 +529,6 @@ public class ProceduralNemesis extends JPanel {
       }
     }
 
-    // TODO
-    // Place a sprite in "resting list" when it becomes resting
     while (iteration-- > 0) {
       if (debugShow) Log.printf("..........................  ITERATION %d", iteration);
       collider.resetCollisions();
@@ -530,7 +546,7 @@ public class ProceduralNemesis extends JPanel {
           float pene = collider.collides(sprA, sprB, phyMTVA, phyMTVB, phyMTV, phyColl);
           if (pene > 0) {
             if (debugShow) {
-              dbgMark(Color.white, phyColl, 1, null);
+              dbgMark(Color.red, phyColl, 1, null);
               dbgLine(Color.yellow, sprA.getVec(), phyMTV.assign(new Vec2f()).mul(-5f).add(sprA.getVec()), 1, null);
               dbgMark(Color.yellow, sprA.getVec(), 1, "A");
               dbgLine(Color.cyan,   sprB.getVec(), phyMTV.assign(new Vec2f()).mul(+5f).add(sprB.getVec()), 1, null);
@@ -587,8 +603,10 @@ public class ProceduralNemesis extends JPanel {
     //g.setStroke(stroke);
     AffineTransform origTransform = g.getTransform();
     g.translate(transX*mag, transY*mag);
-    for (Sprite sprite : sprites) {
-      sprite.paint(g);
+    synchronized (sprites) {
+      for (Sprite sprite : sprites) {
+        sprite.paint(g);
+      }
     }
     g.setTransform(origTransform);
   }
@@ -609,7 +627,7 @@ public class ProceduralNemesis extends JPanel {
     }
     @Override
     public void paint(Graphics2D g) {
-      g.setColor(Color.cyan);
+      g.setColor(Color.orange);
       super.paint(g);
     }
   }
@@ -712,7 +730,7 @@ public class ProceduralNemesis extends JPanel {
     }
     @Override
     public void paint(Graphics2D g) {
-      g.setColor(Color.yellow);
+      g.setColor(Color.blue);
       super.paint(g);
     }
   } // class Shot
@@ -1116,9 +1134,19 @@ class Collider {
       if (pene1 < pene2) {
         s2.findNearestVertex(es1, ee1, mtv1, nearestVertex);
         calcCollisionPoint(es1, ee1, nearestVertex, collision);
+        if (debugShow && debugMode) {
+          dbgLine(Color.yellow, es1,ee1, 1, "A edge");
+          dbgMark(Color.cyan, nearestVertex, 1, "B vertex");
+          dbgShape(Color.gray, s2, 1, null);
+        }
       } else {
         s1.findNearestVertex(es2, ee2, mtv2, nearestVertex);
         calcCollisionPoint(es2, ee2, nearestVertex, collision);
+        if (debugShow && debugMode) {
+          dbgLine(Color.cyan, es2,ee2, 1, "B edge");
+          dbgMark(Color.yellow, nearestVertex, 1, "A vertex");
+          dbgShape(Color.gray, s1, 1, null);
+        }
       }
       
       mtv1.mul(pene1);
@@ -1882,6 +1910,7 @@ class Collider {
     public float distTo(Vec2f v) {return (float)Math.sqrt((v.x-x)*(v.x-x)+(v.y-y)*(v.y-y));}
     public float distToSq(Vec2f v) {return (v.x-x)*(v.x-x)+(v.y-y)*(v.y-y);}
     public static float dot(Vec2f v1,Vec2f v2) {return v1.x*v2.x+v1.y*v2.y;}
+
     public Object clone() throws CloneNotSupportedException { return super.clone(); } 
   } // class Vec2f
   
