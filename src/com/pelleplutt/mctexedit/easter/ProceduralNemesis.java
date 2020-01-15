@@ -27,7 +27,10 @@ ang:    +0.0000
 // TODO
 // * Place a sprite in "resting list" when it becomes resting
 // * AABB tree
-
+// * HV fails sometimes due to bad HV edge, gives tunneling (find "fail: HV-edge")
+// * implement findFarthestEdge, for HV collision test - test both AHV -> B and B -> AHV
+// * implement multiCollisionPointManifold acc to dyn4j article, avoid popcorneffect when gravity
+// * compound objects (test compound aabb/aabb, then sub aabb, then normal sat against the one that collides)
 public class ProceduralNemesis extends JPanel {
   static final int LOOP_DELAY_MS = 20;
   static final float COLLISION_MIN_PENE = 0.01f;
@@ -919,6 +922,7 @@ public class ProceduralNemesis extends JPanel {
     stick.v1.y += fy;
     stick.v2.x -= fx;
     stick.v2.y -= fy;
+    stick.modified = true;
   }
  
   public void angleConstraint(VStick stick, float targetAngle, float dt) {
@@ -932,6 +936,7 @@ public class ProceduralNemesis extends JPanel {
     stick.v1.y = stick.y+fy;
     stick.v2.x = stick.x-fx;
     stick.v2.y = stick.y-fy;
+    stick.modified = true;
   }
  
 class Collider {
@@ -1090,8 +1095,8 @@ class Collider {
       // obb_top/bottom length = (maxPV-minPV)
       float vminx  = minV  * spr.velN.x;
       float vminy  = minV  * spr.velN.y;
-      float vmaxx  = maxV  * spr.velN.x + spr.vel.x;
-      float vmaxy  = maxV  * spr.velN.y + spr.vel.y;
+      float vmaxx  = maxV  * spr.velN.x + spr.vel.x*1.5f;
+      float vmaxy  = maxV  * spr.velN.y + spr.vel.y*1.5f;
       float pvminx = minPV * velPN.x;
       float pvminy = minPV * velPN.y;
       float pvmaxx = maxPV * velPN.x;
@@ -1187,23 +1192,23 @@ class Collider {
       if (Float.isNaN(t)) {
         // Should not happen, but for some reason the SAT sometimes returns bad edge,
         // iterate through edges to find the best edge
-        Log.println(String.format("         BAD SAT EDGE t:%f, e %+.1f,%+.1f--%+.1f,%+.1f", t, es.x, es.y, ee.x, ee.y));
-        if (debugShow) dbgLine(Color.red, es, ee, 1, "BAD");
-        t = FMAX;
-        Vec2f esCand = vectors[vix++];
-        Vec2f eeCand = vectors[vix++];
-        for (int i = 0; i < spr.shape.countVertices(); i++) {
-          spr.shape.getEdgeVertices(i, esCand, eeCand);
-          float candT = collider.testSegmentOverlap(frontVertex, sprHV.vel, esCand, eeCand);
-          if (!Float.isNaN(candT) && candT < t) {
-            t = candT;
-            esCand.assign(es);
-            eeCand.assign(ee);
-          }
-        }
-        if (t == FMAX) return FMIN;
-        Log.printf("         NEW SAT EDGE t:%f, e %+.1f,%+.1f--%+.1f,%+.1f", t, es.x, es.y, ee.x, ee.y);
-        if (debugShow) dbgLine(Color.green, es, ee, 1, "NEW");
+        // Log.println(String.format("         BAD SAT EDGE t:%f, e %+.1f,%+.1f--%+.1f,%+.1f", t, es.x, es.y, ee.x, ee.y));
+        // if (debugShow) dbgLine(Color.red, es, ee, 1, "BAD");
+        // t = FMAX;
+        // Vec2f esCand = vectors[vix++];
+        // Vec2f eeCand = vectors[vix++];
+        // for (int i = 0; i < spr.shape.countVertices(); i++) {
+        //   spr.shape.getEdgeVertices(i, esCand, eeCand);
+        //   float candT = collider.testSegmentOverlap(frontVertex, sprHV.vel, esCand, eeCand);
+        //   if (!Float.isNaN(candT) && candT < t) {
+        //     t = candT;
+        //     esCand.assign(es);
+        //     eeCand.assign(ee);
+        //   }
+        // }
+        // if (t == FMAX) return FMIN;
+        // Log.printf("         NEW SAT EDGE t:%f, e %+.1f,%+.1f--%+.1f,%+.1f", t, es.x, es.y, ee.x, ee.y);
+        // if (debugShow) dbgLine(Color.green, es, ee, 1, "NEW");
       }
       if (!Float.isNaN(t)) {
         applyHighSpeedPrediction(sprHV, spr, t);
@@ -1270,7 +1275,7 @@ class Collider {
         if ((overlap = pother.overlap(pref)) == 0) {
           return 0;
         }
-        if ((sref.getVerlet() != null && overlap > sref.getVerlet().size * 1.5f) && 
+        if ((sref.getVerlet() != null && overlap > sref.getVerlet().size * 1.5f) &&
             (sother.getVerlet() != null && overlap > sother.getVerlet().size * 1.5f)) {
           // TODO figure out why this happen
 //          System.out.printf("overlap deemed too big %+.1f, ref.verlet.size:+%.1f other.verlet.size:+%.1f\n", overlap, sref.getVerlet().size, sother.getVerlet().size);
@@ -1278,16 +1283,14 @@ class Collider {
 //          System.out.printf("sother:" + sother.getVerlet() + "\n");
           return 0; // returning 0 here makes things a lot more robust
         }
-        float dot = axis.dot(otherVelHint == null ? dirOther : otherVelHint);
-        Log.printf("[SAT]   edge:%d  overlap:%+.1f  axis:%+.1f,%+.1f", i, overlap,axis.x,axis.y);
+        //float dot = axis.dot(otherVelHint == null ? dirOther : otherVelHint);
+        //Log.printf("[SAT]   edge:%d  overlap:%+.1f  axis:%+.1f,%+.1f", i, overlap,axis.x,axis.y);
         //dbgLine(Color.white, edgeS, edgeE, 1, i + " " + String.format("%+.1f", overlap));
         if (overlap < minOverlap) {
           if (mtv != null) axis.assign(mtv);
           minOverlap = overlap;
-          if (dot < 0) {
-            if (collEdgeS != null) edgeS.assign(collEdgeS);
-            if (collEdgeE != null) edgeE.assign(collEdgeE);
-          }
+          if (collEdgeS != null) edgeS.assign(collEdgeS);
+          if (collEdgeE != null) edgeE.assign(collEdgeE);
         }
       }
       if (minOverlap == FMAX) return 0;
@@ -1334,6 +1337,7 @@ class Collider {
     float gravy, gravx;
     float s_x,s_y,s_ox,s_oy;
     float s_gravy, s_gravx;
+    boolean modified;
     public float getX() {return x;}
     public float getY() {return y;}
     public float getOX() {return ox;}
@@ -1387,15 +1391,19 @@ class Collider {
       ox = x; oy = y;
       x += vx*dt + gravx;
       y += vy*dt + gravy;
+      modified = true;
     }
     public void move(float dx, float dy) {
       x += dx; y += dy;
+      modified = true;
     }
     public void moveTo(float x, float y) {
       this.x = x; this.y = y;
+      modified = true;
     }
     public void moveStatic(float dx, float dy) {
       x += dx; y += dy; ox += dx; oy += dy;
+      modified = true;
     }
     public void rotate(float dang) {}
     public void rotateStatic(float dang) {}
@@ -1437,6 +1445,7 @@ class Collider {
       v1.restore();
       v2.restore();
       updateCenter();
+      modified = true;
     }
     public void setInverseFriction(float f) {
       v1.ifriction = v2.ifriction = f;
@@ -1451,6 +1460,7 @@ class Collider {
       x += dx; y += dy;
       v1.move(dx,dy);
       v2.move(dx,dy);
+      modified = true;
     }
     public void rest() {
       v1.rest(); v2.rest();
@@ -1463,6 +1473,7 @@ class Collider {
       ox = x;
       oy = y;
       updateCenter();
+      modified = true;
     }
     public void updateCenter() {
       x = 0.5f*(v1.x + v2.x);
@@ -1477,12 +1488,14 @@ class Collider {
       x += dx; y += dy;
       ox += dx; oy += dy;
       updateCenter();
+      modified = true;
     }
     public void moveTo(float x, float y) {
       v1.moveTo(x, y);
       v2.moveTo(x, y);
       this.x += x; this.y = y;
       updateCenter();
+      modified = true;
     }
     public void rotate(float dang) {
       final float cos = (float)Math.cos(dang);
@@ -1494,6 +1507,7 @@ class Collider {
       v1.y = y+fy;
       v2.x = x-fx;
       v2.y = y-fy;
+      modified = true;
     }
     public void rotateStatic(float dang) {
       float o1x = v1.x;
@@ -1505,6 +1519,7 @@ class Collider {
       v1.oy += (v1.y - o1y);
       v2.ox += (v2.x - o2x);
       v2.oy += (v2.y - o2y);
+      modified = true;
     }
     public void rotateTo(float ang) {
       final float cos = (float)Math.cos(ang);
@@ -1516,6 +1531,7 @@ class Collider {
       v1.y = y-fy;
       v2.x = x+fx;
       v2.y = y+fy;
+      modified = true;
     }
     // The frame is the verlet stick, comprising particles P1 and P2. Each world vertex G is a function
     // of this stick according to:
@@ -1561,7 +1577,7 @@ class Collider {
       v1.y += dv1y;
       v2.x += dv2x;
       v2.y += dv2y;
-
+      modified = true;
     }
     public boolean resting() { return v1.resting() && v2.resting(); }
 
@@ -1692,6 +1708,8 @@ class Collider {
       return c;
     }
     public void shapify() {
+      if (!verlet.modified) return;
+      verlet.modified = false;
       vstick.updateCenter();
       final float a = vstick.angle();
       final float x = vstick.getX();
@@ -1795,7 +1813,7 @@ class Collider {
         v.x *= n; v.y *= n;
         vert.add(new Vec2f());
       }
-     
+      verlet.modified = true;
       shapify();
       // Optimization, collision, sat: check all edges, mark all that are parallel so
       // only one of all parallels is tested during sat
@@ -1804,6 +1822,8 @@ class Collider {
     // align shape after verlet stick
     // x axis is along stick, y axis is sticks normal
     public void shapify() {
+      if (!verlet.modified) return;
+      verlet.modified = false;
       final float xframeCX = vstick.v2.x - vstick.v1.x;
       final float xframeO  = vstick.v1.x;
       final float xframeCY = vstick.v1.y - vstick.v2.y;
@@ -1836,7 +1856,7 @@ class Collider {
     public Projection project(Vec2f axis, Projection dst) {
       dst.reset();
       for (Vec2f v : vert) {
-        float dot = v.dot(axis); 
+        float dot = v.dot(axis);
         dst.addDot(dot);
       }
       return dst;
@@ -1868,13 +1888,14 @@ class Collider {
     }
 
     public Vec2f findFarthestVertexInDirection(Vec2f d) {
-      t1.set(d.x, d.y);
-      vert.get(0).assign(t2);
+      shapify();
+      updateCenter();
+      getCenter(t1);
       float maxDot = 0;
-      Vec2f res = t2;
-      for (int i = 1; i < vert.size(); i++) {
+      Vec2f res = null;
+      for (int i = 0; i < vert.size(); i++) {
         Vec2f v = vert.get(i);
-        float dot = (v.x - t2.x) * d.x + (v.y - t2.y) * d.y;
+        float dot = (v.x - t1.x) * d.x + (v.y - t1.y) * d.y;
         if (dot > maxDot) {
           maxDot = dot;
           res = v;
@@ -1960,7 +1981,7 @@ class Collider {
     JFrame f = new JFrame();
     f.getContentPane().add(n);
     f.setSize(800, 600);
-    f.setLocation(0,00);
+    f.setLocation(0,0);
     f.setVisible(true);
     f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
     n.start();
