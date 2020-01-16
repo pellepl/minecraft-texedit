@@ -1090,7 +1090,8 @@ class Collider {
       }
       minV = Math.min(minV, 0);
       minPV = Math.min(minPV, 0);
-
+      maxV = Math.max(maxV, 0);
+      maxPV = Math.max(maxPV, 0);
       // obb_left/right length = (maxV-minV) + velocity
       // obb_top/bottom length = (maxPV-minPV)
       float vminx  = minV  * spr.velN.x;
@@ -1656,6 +1657,7 @@ class Collider {
     abstract Projection project(Vec2f axis, Projection dst);
     abstract Vec2f findNearestVertex(Vec2f edgeS, Vec2f edgeE, Vec2f norm, Vec2f dst);
     abstract Vec2f findFarthestVertexInDirection(Vec2f d);
+    abstract void findFarthestEdgeInDirection(Vec2f d, Vec2f esdst, Vec2f eedst);
     public Object clone() throws CloneNotSupportedException {
       Shape s = (Shape)super.clone();
       if (verlet != null) s.verlet = (Verlet)verlet.clone();
@@ -1744,6 +1746,9 @@ class Collider {
     }
     public Vec2f findFarthestVertexInDirection(Vec2f d) {
       throw new RuntimeException("Must not find farthest vertex in direction in compound shapes");
+    }
+    public void findFarthestEdgeInDirection(Vec2f d, Vec2f esdst, Vec2f eedst) {
+      throw new RuntimeException("Must not find farthest edge in direction in compound shapes");
     }
 
     int getShapeIx(int vertexIx) {
@@ -1887,21 +1892,42 @@ class Collider {
       return dst;
     }
 
-    public Vec2f findFarthestVertexInDirection(Vec2f d) {
-      shapify();
-      updateCenter();
+    int findFarthestVertexIndex(Vec2f d) {
+      int res = 0;
       getCenter(t1);
       float maxDot = 0;
-      Vec2f res = null;
       for (int i = 0; i < vert.size(); i++) {
         Vec2f v = vert.get(i);
         float dot = (v.x - t1.x) * d.x + (v.y - t1.y) * d.y;
         if (dot > maxDot) {
           maxDot = dot;
-          res = v;
+          res = i;
         }
       }
       return res;
+    }
+
+    public void findFarthestEdgeInDirection(Vec2f d, Vec2f esdst, Vec2f eedst) {
+      shapify();
+      int vix = findFarthestVertexIndex(d);
+      final int vCount = countVertices();
+      Vec2f vertex = getVertex(vix);
+      Vec2f vertexPrev = getVertex((vix + vCount - 1) % vCount);
+      Vec2f vertexNext = getVertex((vix + 1) % vCount);
+      float dotPrev = d.x * (vertex.x - vertexPrev.x) + d.y * (vertex.y - vertexPrev.y);
+      float dotNext = d.x * (vertexNext.x - vertex.x) + d.y * (vertexNext.y - vertex.y);
+      if (Math.abs(dotPrev) < Math.abs(dotNext)) {
+        vertexPrev.assign(esdst);
+        vertex.assign(eedst);
+      } else {
+        vertex.assign(esdst);
+        vertexNext.assign(eedst);
+      }
+    }
+
+    public Vec2f findFarthestVertexInDirection(Vec2f d) {
+      shapify();
+      return getVertex(findFarthestVertexIndex(d));
     }
 
     public Object clone() throws CloneNotSupportedException {
