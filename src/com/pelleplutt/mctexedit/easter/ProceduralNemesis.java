@@ -437,7 +437,8 @@ public class ProceduralNemesis extends JPanel {
   Vec2f phySepNB = new Vec2f();
   Vec2f phyMTV = new Vec2f();
   Vec2f phySepN = new Vec2f();
-  Vec2f phyColl = new Vec2f();
+  Vec2f phyCollA = new Vec2f();
+  Vec2f phyCollB = new Vec2f();
   int iteration = ITERATIONS;
   public void loop() {
     updateInteractions();
@@ -536,105 +537,28 @@ public class ProceduralNemesis extends JPanel {
           if (sprA.shape.resting && sprB.shape.resting) continue;
           if (sprB.highVelocity && sprB.minHighVelT != FMAX) continue; // already tested
           collider.reset();
-          float pene = collider.collides(sprA, sprB, phySepN, phyMTV, phyColl);
+          float pene = collider.collides(sprA, sprB, phySepN, phyMTV, phyCollA, phyCollB);
           if (pene > 0) {
-            if (debugShow) {
-              dbgMark(Color.red, phyColl, 1, null);
-              dbgLine(Color.yellow, sprA.getVec(), phyMTV.assign(new Vec2f()).mul(-5f).add(sprA.getVec()), 1, null);
-              dbgMark(Color.yellow, sprA.getVec(), 1, "A");
-              dbgLine(Color.cyan,   sprB.getVec(), phyMTV.assign(new Vec2f()).mul(+5f).add(sprB.getVec()), 1, null);
-              dbgMark(Color.cyan,   sprB.getVec(), 1, "B");
-            }
-            collider.addCollision(sprA, sprB, phyColl, phyMTV, phySepN);
+            collider.addCollision(sprA, sprB, phyCollA, phyCollB, phyMTV, phySepN);
           }
         }
       } // find collisions, per sprite
+
+      // apply collisions
       for (int i = 0; i < collider.countCollisions(); i++) {
         Collider.Collision c = collider.getCollision(i);
-        Log.printf("[resolv %d]  precollision obj:%d[%+.1f,%+.1f]%s / %d[%+.1f,%+.1f]%s   collXY:%+.1f,%+.1f   mtv:%+.1f,%+.1f;len:%.1f",
+        Log.printf("[resolv %d]  precollision obj:%d[%+.1f,%+.1f]%s / %d[%+.1f,%+.1f]%s   collAXY:%+.1f,%+.1f   collBXY:%+.1f,%+.1f   mtv:%+.1f,%+.1f;len:%.1f",
             iteration,
             c.sprA.id, c.sprA.shape.getX(), c.sprA.shape.getY(), c.sprA.highVelocity ? "(HV)": "    ",
             c.sprB.id, c.sprB.shape.getX(), c.sprB.shape.getY(), c.sprB.highVelocity ? "(HV)": "    ",
-            c.poc.x,c.poc.y,
+            c.pocA.x,c.pocA.y,
+            c.pocB.x,c.pocB.y,
             c.mtv.x,c.mtv.y,c.mtv.len()
         );
-        do { // TODO PETER
-          // see http://www.dyn4j.org/2011/11/contact-points-using-clipping/
-          Vec2f esA = new Vec2f();
-          Vec2f eeA = new Vec2f();
-          Vec2f eA = new Vec2f();
-          Vec2f vA = new Vec2f();
-          Vec2f esB = new Vec2f();
-          Vec2f eeB = new Vec2f();
-          Vec2f eB = new Vec2f();
-          Vec2f vB = new Vec2f();
-          Vec2f negmtv = new Vec2f();
-          Vec2f p1 = new Vec2f();
-          Vec2f p2 = new Vec2f();
-          int clips;
-          c.sprA.shape.findFarthestEdgeInDirection(c.mtv, esA, eeA, vA);
-          c.sprB.shape.findFarthestEdgeInDirection(c.mtv.neg(negmtv), esB, eeB, vB);
-          eeA.assign(eA).sub(esA);
-          eeB.assign(eB).sub(esB);
-          Vec2f inciS, inciE, refeS, refeE,  refe, refv;
-          boolean flip = false;
-          if (Math.abs(eA.dot(c.sepN)) <= Math.abs(eB.dot(c.sepN))) {
-            refeS = esA; refeE = eeA; refe = eA; refv = vA;
-            inciS = esB; inciE = eeB;
-          } else {
-            refeS = esB; refeE = eeB; refe = eB; refv = vB;
-            inciS = esA; inciE = eeA;
-            flip = true;
-          }
-          dbgLine(Color.magenta, refeS, refeE, 1, "ref");
-          dbgLine(Color.red, inciS, inciE, 1, "inc");
-          dbgLine(new Color(128,0,128), refeS, refeS.cpy().add(c.sepN.cpy().mul(5f)), 1, "");
-          dbgLine(new Color(128,0,128), refeE, refeE.cpy().add(c.sepN.cpy().mul(5f)), 1, "");
-
-          refe.norm();
-
-          float o1 = refe.dot(refeS);
-          clips = collider.clip(inciS, inciE, refe, o1, p1, p2);
-          if (clips < 2)  {
-            break;
-          }
-          float o2 = refe.dot(refeE);
-          clips = collider.clip(p1, p2, refe.neg(), -o2, p1, p2);
-          if (clips < 2)  {
-            break;
-          }
-          refe.neg();
-          
-          refe.perp();
-          if (flip) refe.neg();
-
-          float max = refe.dot(refv);
-          float cx = 0;
-          float cy = 0;
-          float colls = 0;
-          if (refe.dot(p1) - max >= 0)
-          {
-            cx += p1.x; cy += p1.y;
-            colls++;
-          }
-          if (refe.dot(p2) - max >= 0)
-          {
-            cx += p2.x; cy += p2.y;
-            colls++;
-          }
-          if (colls > 0) {
-            cx /= colls;
-            cy /= colls;
-            dbgMark(Color.pink, new Vec2f(cx,cy), 1, "c"+(int)colls);
-          }
-          dbgMark(Color.gray, c.poc, 1, "  C");
-
-        } while (false);
-
         float inviMassSum = 2f/(c.sprA.imass + c.sprB.imass);
-        // TODO PETER
-        //if (c.sprA.imass > 0) c.sprA.shape.impulse(c.poc, c.mtv, -c.sprA.imass * inviMassSum);
-        //if (c.sprB.imass > 0) c.sprB.shape.impulse(c.poc, c.mtv, c.sprB.imass * inviMassSum);
+
+        if (c.sprA.imass > 0) c.sprA.shape.impulse(c.pocA, c.mtv, c.sprA.imass * inviMassSum);
+        if (c.sprB.imass > 0) c.sprB.shape.impulse(c.pocB, c.mtv, -c.sprB.imass * inviMassSum);
         Log.printf("[resolv %d] postcollision obj:%d[%+.1f,%+.1f]%s / %d[%+.1f,%+.1f]%s",
           iteration,
           c.sprA.id, c.sprA.shape.getX(), c.sprA.shape.getY(), c.sprA.highVelocity ? "(HV)": "    ",
@@ -655,18 +579,19 @@ public class ProceduralNemesis extends JPanel {
     iteration = ITERATIONS;
   } // loop()
  
- 
   @Override
   public void paint(Graphics g) {
     g.drawImage(screen, 0, 0, this);
   }
 
   Stroke stroke = new BasicStroke(2);
- 
+  Font font = Font.decode("courier-plain-12");
+  
   public void draw(Graphics2D g) {
     g.setColor(Color.black);
     g.fillRect(0, 0, WIDTH, HEIGHT);
     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+    g.setFont(font);
     //g.setStroke(stroke);
     AffineTransform origTransform = g.getTransform();
     g.translate(transX*mag, transY*mag);
@@ -1025,9 +950,9 @@ class Collider {
       cix = 0;
     } // Collider.reset
 
-    public void addCollision(Sprite a, Sprite b, Vec2f poc, Vec2f mtv, Vec2f separationNormal) {
+    public void addCollision(Sprite a, Sprite b, Vec2f pocA, Vec2f pocB, Vec2f mtv, Vec2f separationNormal) {
       Collision c = collisions[cix++];
-      c.set(a,b,poc,mtv, separationNormal);
+      c.set(a,b,pocA,pocB,mtv, separationNormal);
     } // Collider.addCollision
 
     public int countCollisions() {
@@ -1060,23 +985,13 @@ class Collider {
       return dst;
     } // Collider.calcCollisionPoint
 
-    public float collides(Sprite sprA, Sprite sprB, Vec2f sepN, Vec2f mtv, Vec2f collision) {
+    public float collides(Sprite sprA, Sprite sprB, Vec2f sepN, Vec2f mtv, Vec2f collisionA, Vec2f collisionB) {
       // broad phase check
       if (!intersectAABB(sprA,sprB)) return 0;
       Log.printf("%d / %d aabb intersects", sprA.id, sprB.id);
       // narrow phase check
-      float pene = intersectSAT(sprA,sprB,sepN,mtv,collision);
+      float pene = intersectSAT(sprA,sprB,sepN,mtv,collisionA,collisionB);
       if (pene >= COLLISION_MIN_PENE) {
-        Vec2f ca = vectors[vix++];
-        Vec2f cb = vectors[vix++];
-        sprA.shape.getCenter(ca);
-        sprB.shape.getCenter(cb);
-        cb.sub(ca);
-        if (cb.dot(mtv) < 0) {
-          // make sure the mtv separates the objects
-          mtv.neg();
-          sepN.neg();
-        }
         return pene;
       } else {
         return 0f;
@@ -1180,78 +1095,73 @@ class Collider {
       spr.highVelBodyY = (maxV - minV) * spr.velN.y;
     } // Collider.calcVelocityOBB
    
-    float intersectSAT(Sprite spr1, Sprite spr2, Vec2f sepNorm, Vec2f mtv, Vec2f collision) {
+    float intersectSAT(Sprite spr1, Sprite spr2, Vec2f sepNorm, Vec2f mtv, Vec2f coll1, Vec2f coll2) {
       Shape s1 = spr1.shape;
       Shape s2 = spr2.shape;
-      Vec2f nearestVertex = vectors[vix++];
+      Vec2f refCollision = vectors[vix++];
+      Vec2f incCollision = vectors[vix++];
       Vec2f sepNorm1 = vectors[vix++];
       Vec2f sepNorm2 = vectors[vix++];
-      Vec2f es1 = vectors[vix++];
-      Vec2f ee1 = vectors[vix++];
-      Vec2f es2 = vectors[vix++];
-      Vec2f ee2 = vectors[vix++];
+      Vec2f incES = vectors[vix++];
+      Vec2f incEE = vectors[vix++];
       float pene1, pene2;
 
-      Log.printf("[SAT] %d / %d", spr1.id, spr2.id);
-      pene1 = sat(s1, s2, sepNorm1, es1, ee1);
+      pene1 = sat(s1, s2, sepNorm1);
       if (pene1 == 0) {
         return 0;
       }
-      Log.printf("[SAT] %d / %d", spr2.id, spr1.id);
-      pene2 = sat(s2, s1, sepNorm2, es2, ee2);
+      pene2 = sat(s2, s1, sepNorm2);
       if (pene2 == 0) {
         return 0;
       }
-      Log.printf("[SAT] %d / %d found (pene1:%+.4f, pene2:%+.4f)  sepN1:%+.1f,%+.1f  sepN2:%+.1f,%+.1f",
-        spr1.id, spr2.id, pene1, pene2, sepNorm1.x, sepNorm1.y, sepNorm2.x, sepNorm2.y);
 
-      sepNorm1.neg();
-      sepNorm2.neg();
+      // make sure separationNormals separates s1 from s2
+      Vec2f c1 = vectors[vix++];
+      Vec2f c2 = vectors[vix++];
+      s2.getCenter(c2).sub(s1.getCenter(c1));
+      if (c2.dot(sepNorm1) < 0) sepNorm1.neg();
+      if (c2.dot(sepNorm2) < 0) sepNorm2.neg();
 
-      {// TODO PETER
-        s2.findNearestVertex(es1, ee1, sepNorm1, nearestVertex);
-        calcCollisionPoint(es1, ee1, nearestVertex, collision);
-        dbgMark(pene1 < pene2 ? Color.cyan: Color.blue, nearestVertex, 1, "2nv");
-        dbgMark(pene1 < pene2 ? Color.cyan: Color.blue, collision, 1, "2 " + pene1);
-        dbgLine(pene1 < pene2 ? Color.cyan: Color.blue, collision, collision.cpy().add(sepNorm1.cpy().mul(5f)), 1,"");
-        s1.findNearestVertex(es2, ee2, sepNorm2, nearestVertex);
-        calcCollisionPoint(es2, ee2, nearestVertex, collision);
-        dbgMark(pene1 < pene2 ? Color.cyan: Color.blue, nearestVertex, 1, "1nv");
-        dbgMark(pene2 < pene1 ? Color.cyan: Color.blue, collision, 1, "1 " + pene2);
-        dbgLine(pene2 < pene1 ? Color.cyan: Color.blue, collision, collision.cpy().add(sepNorm2.cpy().mul(5f)), 1,"");
-      }
+      Vec2f refSepNorm;
+      Shape refShape, incShape;
+      float pene;
+
       if (pene1 < pene2) {
-        s2.findNearestVertex(es1, ee1, sepNorm1, nearestVertex);
-        calcCollisionPoint(es1, ee1, nearestVertex, collision);
-        if (debugShow && debugMode) {
-          dbgLine(Color.yellow, es1,ee1, 1, "A edge");
-          dbgMark(Color.cyan, nearestVertex, 1, "B vertex");
-          dbgShape(Color.gray, s2, 1, null);
-        }
+        // choose sepNorm1 (negated)
+        refSepNorm = sepNorm1.neg();
+        incShape = s1;
+        refShape = s2;
+        pene = pene1;
       } else {
-        s1.findNearestVertex(es2, ee2, sepNorm2, nearestVertex);
-        calcCollisionPoint(es2, ee2, nearestVertex, collision);
-        if (debugShow && debugMode) {
-          dbgLine(Color.cyan, es2,ee2, 1, "B edge");
-          dbgMark(Color.yellow, nearestVertex, 1, "A vertex");
-          dbgShape(Color.gray, s1, 1, null);
-        }
+        // choose sepNorm2
+        refSepNorm = sepNorm2;
+        incShape = s2;
+        refShape = s1;
+        pene = pene2;
       }
-     
+      refShape.findFarthestVertexInDirection(refSepNorm).assign(refCollision);
+      incShape.findFarthestEdgeInDirection(refSepNorm.neg(), incES, incEE, null);
+      calcCollisionPoint(incES, incEE, refCollision, incCollision);
+      
       if (pene1 < pene2) {
-        sepNorm1.assign(mtv).mul(pene1);
-        sepNorm1.assign(sepNorm);
+        refSepNorm.neg();
+        incCollision.assign(coll1);
+        refCollision.assign(coll2);
       } else {
-        sepNorm2.assign(mtv).mul(pene2);
-        sepNorm2.assign(sepNorm);
+        refCollision.assign(coll1);
+        incCollision.assign(coll2);
       }
-     
-      Log.printf("    %d / %d collision  pene:%+.1f  mtv:%+.1f,%+.1f  coll.xy:%+.1f,%+.1f",
-          spr1.id, spr2.id, pene1 < pene2 ? pene1 : pene2,
-          mtv.x, mtv.y,
-          collision.x, collision.y);
 
-      return pene1 < pene2 ? pene1 : pene2;
+      refSepNorm.assign(sepNorm);
+      refSepNorm.assign(mtv).mul(pene);
+
+      if (debugShow) {
+        dbgMark(Color.cyan, coll1, 1, "");
+        dbgMark(Color.blue, coll2, 1, "");
+        dbgLine(Color.white, coll1, coll1.cpy().add(mtv), 1, "");
+      }
+
+      return pene;
     } // Collider.intersectSAT
 
     // returns scalar to multiply sprite.vel with to fast forward time to
@@ -1259,11 +1169,11 @@ class Collider {
     float highVelSAT(Sprite sprHV, Sprite spr) {
       Vec2f es = vectors[vix++];
       Vec2f ee = vectors[vix++];
-      float peneHighVelA = sat(sprHV.obbShape, spr.shape, null, null, null);
+      float peneHighVelA = sat(sprHV.obbShape, spr.shape, null);
       if (peneHighVelA == 0) {
         return FMIN;
       }
-      float peneHighVelB = sat(spr.shape, sprHV.obbShape, null, null, null);
+      float peneHighVelB = sat(spr.shape, sprHV.obbShape, null);
       if (peneHighVelB == 0) {
         return FMIN;
       }
@@ -1340,19 +1250,15 @@ class Collider {
       return points;
     }
 
-    float sat(Shape sref, Shape sother, Vec2f sepN, Vec2f collEdgeS, Vec2f collEdgeE) {
+    float sat(Shape sref, Shape sother, Vec2f sepN) {
       float minOverlap = FMAX;
       final int srefVertices = sref.countVertices();
       Vec2f edgeS = vectors[vix++];
       Vec2f edgeE = vectors[vix++];
       Vec2f edge = vectors[vix++];
       Vec2f axis = vectors[vix++];
-      Vec2f posRef = vectors[vix++];
-      Vec2f dirOther = vectors[vix++];
       Projection pref = projections[pix++];
       Projection pother = projections[pix++];
-      sref.getCenter(posRef);
-      sother.getCenter(dirOther).sub(posRef).neg();
 
       for (int i = 0; i < srefVertices; i++) {
         sref.getEdgeVertices(i, edgeS, edgeE);
@@ -1376,8 +1282,6 @@ class Collider {
         if (overlap < minOverlap) {
           if (sepN != null) axis.assign(sepN);
           minOverlap = overlap;
-          if (collEdgeS != null) edgeS.assign(collEdgeS);
-          if (collEdgeE != null) edgeE.assign(collEdgeE);
         }
       }
       if (minOverlap == FMAX) return 0;
@@ -1385,11 +1289,12 @@ class Collider {
     } // Collider.sat
     class Collision {
       public Sprite sprA, sprB;
-      public Vec2f poc = new Vec2f();
+      public Vec2f pocA = new Vec2f();
+      public Vec2f pocB = new Vec2f();
       public Vec2f mtv = new Vec2f();
       public Vec2f sepN = new Vec2f();
-      public void set(Sprite a, Sprite b, Vec2f poc, Vec2f mtv, Vec2f sepN) {
-        sprA = a; sprB = b; poc.assign(this.poc); mtv.assign(this.mtv); sepN.assign(this.sepN);
+      public void set(Sprite a, Sprite b, Vec2f pocA,  Vec2f pocB, Vec2f mtv, Vec2f sepN) {
+        sprA = a; sprB = b; pocA.assign(this.pocA); pocB.assign(this.pocB); mtv.assign(this.mtv); sepN.assign(this.sepN);
       }
     } // class Collision
   } // class Collider
