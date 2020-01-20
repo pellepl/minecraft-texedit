@@ -11,24 +11,10 @@ import javax.swing.*;
 
 import com.pelleplutt.util.*;
 
-/*
-Selects bad edge on trajectory prediction
-ID:     3 THING2
-X,Y:    +317.8654,+272.5937
-ang:    -0.1164
-ID:     134 SHOT
-X,Y:    +301.5707,+281.7071
-ang:    +0.0000
-ID:     0 PLAYER
-X,Y:    -202.2084,+281.6925
-ang:    +0.0000
-*/
-
 // TODO
 // * Place a sprite in "resting list" when it becomes resting
 // * AABB tree
 // * test both AHV--->B and B--->AHV
-// * implement multiCollisionPointManifold acc to dyn4j article, avoid popcorneffect when gravity
 // * compound objects (test compound aabb/aabb, then sub aabb, then normal sat against the one that collides)
 public class ProceduralNemesis extends JPanel {
   static final int LOOP_DELAY_MS = 20;
@@ -100,8 +86,8 @@ public class ProceduralNemesis extends JPanel {
     enemy.rest();
     sprites.add(enemy);
     /**/
-    for (int j = 0; j < 2; j++) {
-      for (int i = 0; i < 2; i++) {
+    for (int j = 0; j < 4; j++) {
+      for (int i = 0; i < 4; i++) {
         Sprite t = new Thing2();
         t.move(160 + i*16, 160 + j*20 + ((i&1)==0?10:0));
         t.rotateTo(25*j+(i+1)*73);
@@ -286,7 +272,7 @@ public class ProceduralNemesis extends JPanel {
       }});
   }
  
-  static final float PLAYER_STEP = 0.25f;
+  static final float PLAYER_STEP = 1f;
   int fireCoolOff = 0;
   void updateInteractions() {
     float a = player.shape.angle();
@@ -557,8 +543,8 @@ public class ProceduralNemesis extends JPanel {
         );
         float inviMassSum = 2f/(c.sprA.imass + c.sprB.imass);
 
-        if (c.sprA.imass > 0) c.sprA.shape.impulse(c.pocA, c.mtv, c.sprA.imass * inviMassSum);
-        if (c.sprB.imass > 0) c.sprB.shape.impulse(c.pocB, c.mtv, -c.sprB.imass * inviMassSum);
+        if (c.sprA.imass > 0) c.sprA.shape.impulseAndFriction(c.pocA, c.sepN, c.mtv, c.sprA.imass * inviMassSum, c.sprB.shape);
+        if (c.sprB.imass > 0) c.sprB.shape.impulseAndFriction(c.pocB, c.sepN, c.mtv, -c.sprB.imass * inviMassSum, c.sprA.shape);
         Log.printf("[resolv %d] postcollision obj:%d[%+.1f,%+.1f]%s / %d[%+.1f,%+.1f]%s",
           iteration,
           c.sprA.id, c.sprA.shape.getX(), c.sprA.shape.getY(), c.sprA.highVelocity ? "(HV)": "    ",
@@ -1122,6 +1108,7 @@ class Collider {
       if (c2.dot(sepNorm1) < 0) sepNorm1.neg();
       if (c2.dot(sepNorm2) < 0) sepNorm2.neg();
 
+      // find collision points
       Vec2f refSepNorm;
       Shape refShape, incShape;
       float pene;
@@ -1357,8 +1344,19 @@ class Collider {
     public abstract void rotateStatic(float dang);
     public abstract void rotateTo(float ang);
     public abstract void impulse(Vec2f collision, Vec2f movement, float factor);
+    public void force(float dx, float dy) { ox -= dx; oy -= dy; }
     public abstract void setInverseFriction(float f);
     public abstract boolean resting();
+    public Vec2f getLocalVector(Vec2f world, Vec2f dst) {
+      dst.x = world.x - x;
+      dst.y = world.y - y;
+      return dst;
+    }
+    public Vec2f getWorldVector(Vec2f local, Vec2f dst) {
+      dst.x = local.x + x;
+      dst.y = local.y + y;
+      return dst;
+    }
    
     public void save() {
       s_x = x; s_y = y; s_ox = ox; s_oy = oy; s_gravx = gravx; s_gravy = gravy;
@@ -1491,6 +1489,12 @@ class Collider {
       updateCenter();
       modified = true;
     }
+    public void force(float dx, float dy) { 
+      ox -= dx; oy -= dy;
+      v1.force(dx, dy);
+      v2.force(dx, dy);
+
+    }
     public void rotate(float dang) {
       final float cos = (float)Math.cos(dang);
       final float sin = (float)Math.sin(dang);
@@ -1527,6 +1531,7 @@ class Collider {
       v2.y = y+fy;
       modified = true;
     }
+    Vec2f local = new Vec2f();
     // The frame is the verlet stick, comprising particles P1 and P2. Each world vertex G is a function
     // of this stick according to:
     //   G(P1,P2) = P1 + shape_x * (P2-P1) + shape_y * perp(P2-P1) =>
@@ -1547,17 +1552,9 @@ class Collider {
     //
     // see https://pybullet.org/Bullet/phpBB3/viewtopic.php?t=10718
     public void impulse(Vec2f collision, Vec2f movement, float factor) {
-      // get corresponding g coordinate in stick system by dotting
-      float v1cx = collision.x - v1.x;
-      float v1cy = collision.y - v1.y;
-      float v12x = v2.x - v1.x;
-      float v12y = v2.y - v1.y;
-     
-      float gscale = isize * isize;
-     
-      float gcx = (v1cx *  v12x + v1cy * v12y) * gscale;
-      float gcy = (v1cx * -v12y + v1cy * v12x) * gscale; // perped v12
-     
+      getLocalVector(collision, local);
+      float gcx = local.x;
+      float gcy = local.y;
       // calc p1 and p2 dislocations
       float mdx = movement.x * factor;
       float mdy = movement.y * factor;
@@ -1572,6 +1569,31 @@ class Collider {
       v2.x += dv2x;
       v2.y += dv2y;
       modified = true;
+    }
+    public Vec2f getLocalVector(Vec2f world, Vec2f dst) {
+      // get local coordinate in stick system by dotting
+      float v1cx = world.x - v1.x;
+      float v1cy = world.y - v1.y;
+      float v12x = v2.x - v1.x;
+      float v12y = v2.y - v1.y;
+     
+      float gscale = isize * isize;
+     
+      float gcx = (v1cx *  v12x + v1cy * v12y) * gscale;
+      float gcy = (v1cx * -v12y + v1cy * v12x) * gscale; // perped v12
+      dst.x = gcx; dst.y = gcy;
+      return dst;
+    }
+    public Vec2f getWorldVector(Vec2f local, Vec2f dst) {
+      final float xframeCX = v2.x - v1.x;
+      final float xframeO  = v1.x;
+      final float xframeCY = v1.y - v2.y;
+      final float yframeCX = v2.y - v1.y;
+      final float yframeO  = v1.y;
+      final float yframeCY = v2.x - v1.x;
+      dst.x = local.x * xframeCX + xframeO + local.y * xframeCY;
+      dst.y = local.x * yframeCX + yframeO + local.y * yframeCY;
+      return dst;
     }
     public boolean resting() { return v1.resting() && v2.resting(); }
 
@@ -1657,6 +1679,39 @@ class Collider {
       s.aabbMin = (Vec2f)aabbMin.clone();
       s.aabbMax = (Vec2f)aabbMax.clone();
       return s;
+    }
+    void impulseAndFriction(Vec2f collision, Vec2f norm, Vec2f movement, float factor, Shape otherShape) {
+      // TODO PETER optimise, no new Vec2f
+      float apre = angle();
+      Vec2f localPreCollision = getVerlet().getLocalVector(collision, new Vec2f());
+      impulse(collision, movement, factor);
+      float apost = angle();
+      float da = apost - apre;
+      Vec2f localPostCollision = localPreCollision.cpy().rotate(da);
+
+      Vec2f worldPost = verlet.getWorldVector(localPostCollision, new Vec2f());
+      
+      dbgLine(Color.white,collision,worldPost,1,"");
+      dbgMark(Color.blue,collision,1,"");
+
+      // TESTING FRICTION
+
+      // TODO PETER: from da, calculate collisionpoints rotational translation by using local coords, and apply
+      //             that translation to friction response also - now rotation does not give friction,
+      //             only translation.
+
+      Vec2f d = new Vec2f(movement.x*factor, movement.y*factor);
+      float fnormx = 1f - Math.abs(norm.x);
+      float fnormy = 1f - Math.abs(norm.y);
+      Vec2f fric = new Vec2f(d.x * fnormx, d.y  * fnormy);
+      fric.mul(-.5f);
+      impulse(collision, fric, 1f);
+      otherShape.getVerlet().impulse(collision, fric, -(1f-factor));
+      Vec2f dm = new Vec2f(verlet.x - verlet.ox, verlet.y - verlet.oy);
+      Vec2f fricm = new Vec2f(dm.x * fnormx, dm.y  * fnormy);
+      fricm.mul(-.5f);
+      getVerlet().force(fricm.x, fricm.y);
+      otherShape.getVerlet().force(-fricm.x, -fricm.y);
     }
   } // class Shape
   class CompoundShape extends Shape {
@@ -1956,6 +2011,7 @@ class Collider {
     public Vec2f neg(Vec2f dst) {dst.x=-x;dst.y=-y;return dst;}
     public Vec2f perp(Vec2f dst) {float t=x;dst.x=-y;dst.y=t;return dst;}
     public Vec2f norm(Vec2f dst) {float t=1f/(float)Math.sqrt(x*x+y*y);dst.x=x*t;dst.y=y*t;return dst;}
+    public Vec2f rotate(float a,Vec2f dst) {float c = (float)Math.cos(a); float s = (float)Math.sin(a); float tx=x*c-y*s; dst.y=x*s+y*c; dst.x=tx; return dst;}
     public Vec2f cpy() {return new Vec2f(this);}
 
     public Vec2f set(float x, float y) {this.x=x;this.y=y;return this;}
@@ -1968,6 +2024,7 @@ class Collider {
     public Vec2f neg() {x=-x;y=-y;return this;}
     public Vec2f perp() {float t=x;x=-y;y=t;return this;}
     public Vec2f norm() {float t=1f/(float)Math.sqrt(x*x+y*y);x*=t;y*=t;return this;}
+    public Vec2f rotate(float a) {float c = (float)Math.cos(a); float s = (float)Math.sin(a); float tx=x*c-y*s; y=x*s+y*c; x=tx; return this;}
 
     public float len() {return (float)Math.sqrt(x*x+y*y);}
     public float lenSq() {return x*x+y*y;}
@@ -2003,8 +2060,8 @@ class Collider {
     ProceduralNemesis n = new ProceduralNemesis();
     JFrame f = new JFrame();
     f.getContentPane().add(n);
-    f.setSize(800, 600);
-    f.setLocation(0,0);
+    f.setSize(600, 400);
+    f.setLocation(2400,0);
     f.setVisible(true);
     f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
     n.start();
