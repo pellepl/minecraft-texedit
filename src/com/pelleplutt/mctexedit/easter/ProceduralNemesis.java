@@ -509,6 +509,7 @@ public class ProceduralNemesis extends JPanel {
       }
     }
     player.shape.resting = false;
+    collider.fix = 0;
     while (iteration-- > 0) {
       if (debugShow) Log.printf("..........................  ITERATION %d", iteration);
       collider.resetCollisions();
@@ -525,7 +526,7 @@ public class ProceduralNemesis extends JPanel {
           collider.reset();
           float pene = collider.collides(sprA, sprB, phySepN, phyMTV, phyCollA, phyCollB);
           if (pene > 0) {
-            collider.addCollision(sprA, sprB, pene, phyCollA, phyCollB, phyMTV, phySepN);
+            collider.addCollision(iteration+1, sprA, sprB, pene, phyCollA, phyCollB, phyMTV, phySepN);
           }
         }
       } // find collisions, per sprite
@@ -543,14 +544,15 @@ public class ProceduralNemesis extends JPanel {
         );
         float inviMassSum = 2f/(c.sprA.imass + c.sprB.imass);
 
-        if (c.sprA.imass > 0) c.sprA.shape.impulseAndFriction(c.pocA, c.sepN, c.mtv, c.sprA.imass * inviMassSum, c.sprB.shape);
-        if (c.sprB.imass > 0) c.sprB.shape.impulseAndFriction(c.pocB, c.sepN, c.mtv, -c.sprB.imass * inviMassSum, c.sprA.shape);
+        if (c.sprA.imass > 0) c.sprA.shape.impulse(c.pocA, c.mtv, c.sprA.imass * inviMassSum);
+        if (c.sprB.imass > 0) c.sprB.shape.impulse(c.pocA, c.mtv, -c.sprB.imass * inviMassSum);
         Log.printf("[resolv %d] postcollision obj:%d[%+.1f,%+.1f]%s / %d[%+.1f,%+.1f]%s",
           iteration,
           c.sprA.id, c.sprA.shape.getX(), c.sprA.shape.getY(), c.sprA.highVelocity ? "(HV)": "    ",
           c.sprB.id, c.sprB.shape.getX(), c.sprB.shape.getY(), c.sprB.highVelocity ? "(HV)": "    "
         );
       } // resolve, per collision
+
       if (collider.countCollisions() == 0) {
         iteration = ITERATIONS;
         break;
@@ -559,6 +561,14 @@ public class ProceduralNemesis extends JPanel {
         return;
       }
     } // while maxIterations
+    // apply friction
+    for (int i = 0; i < collider.countFrictions(); i++) {
+      Collider.Collision c = collider.getFriction(i);
+      float inviMassSum = 2f/(c.sprA.imass + c.sprB.imass);
+      if (c.sprA.imass > 0) c.sprA.shape.friction(c.lpocA, c.lpocB, c.sepN, c.mtv, c.sprA.imass * inviMassSum, c.sprB.shape);
+      if (c.sprB.imass > 0) c.sprB.shape.friction(c.lpocB, c.lpocA, c.sepN, c.mtv, -c.sprB.imass * inviMassSum, c.sprA.shape);
+    }
+
     if (debugMode && iteration > 0) {
       return;
     }
@@ -572,7 +582,7 @@ public class ProceduralNemesis extends JPanel {
 
   Stroke stroke = new BasicStroke(2);
   Font font = Font.decode("courier-plain-12");
-  
+ 
   public void draw(Graphics2D g) {
     g.setColor(Color.black);
     g.fillRect(0, 0, WIDTH, HEIGHT);
@@ -918,14 +928,17 @@ class Collider {
     Projection projections[] = new Projection[8];
     Vec2f vectors[] = new Vec2f[64];
     Collision collisions[] = new Collision[4096];
+    Collision frictions[] = new Collision[4096];
     public Collider() {
       for (int i = 0; i < projections.length; i++) { projections[i] = new Projection(); }
       for (int i = 0; i < vectors.length; i++) { vectors[i] = new Vec2f(); }
       for (int i = 0; i < collisions.length; i++) { collisions[i] = new Collision(); }
+      for (int i = 0; i < frictions.length; i++) { frictions[i] = new Collision(); }
     }
     int vix = 0;
     int pix = 0;
     int cix = 0;
+    int fix = 0;
 
     void reset() {
       vix = 0;
@@ -936,18 +949,30 @@ class Collider {
       cix = 0;
     } // Collider.reset
 
-    public void addCollision(Sprite a, Sprite b, float pene, Vec2f pocA, Vec2f pocB, Vec2f mtv, Vec2f separationNormal) {
+    public void addCollision(int iteration, Sprite a, Sprite b, float pene, Vec2f pocA, Vec2f pocB, Vec2f mtv, Vec2f separationNormal) {
       Collision c = collisions[cix++];
       c.set(a,b,pene,pocA,pocB,mtv, separationNormal);
+      if (iteration == ITERATIONS) {
+        Collision f = frictions[fix++];
+        f.set(a,b,pene,pocA,pocB,mtv,separationNormal);
+        a.shape.verlet.getLocalVector(pocA, f.lpocA);
+        b.shape.verlet.getLocalVector(pocB, f.lpocB);
+      }
     } // Collider.addCollision
 
     public int countCollisions() {
       return cix;
     } // Collider.countCollisions
+    public int countFrictions() {
+      return fix;
+    } // Collider.countFrictions
 
     public Collision getCollision(int ix) {
       return collisions[ix];
     } // Collider.getCollision
+    public Collision getFriction(int ix) {
+      return frictions[ix];
+    } // Collider.getFriction
    
     public boolean checkHighVelocity(Sprite spr) {
       Shape s = spr.shape;
@@ -1129,7 +1154,7 @@ class Collider {
       refShape.findFarthestVertexInDirection(refSepNorm).assign(refCollision);
       incShape.findFarthestEdgeInDirection(refSepNorm.neg(), incES, incEE, null);
       calcCollisionPoint(incES, incEE, refCollision, incCollision);
-      
+     
       if (pene1 < pene2) {
         refSepNorm.neg();
         incCollision.assign(coll1);
@@ -1279,6 +1304,8 @@ class Collider {
       float penetration;
       public Vec2f pocA = new Vec2f();
       public Vec2f pocB = new Vec2f();
+      public Vec2f lpocA = new Vec2f();
+      public Vec2f lpocB = new Vec2f();
       public Vec2f mtv = new Vec2f();
       public Vec2f sepN = new Vec2f();
       public void set(Sprite a, Sprite b, float penetration, Vec2f pocA,  Vec2f pocB, Vec2f mtv, Vec2f sepN) {
@@ -1495,7 +1522,7 @@ class Collider {
       updateCenter();
       modified = true;
     }
-    public void force(float dx, float dy) { 
+    public void force(float dx, float dy) {
       ox -= dx; oy -= dy;
       v1.force(dx, dy);
       v2.force(dx, dy);
@@ -1699,68 +1726,34 @@ class Collider {
       s.aabbMax = (Vec2f)aabbMax.clone();
       return s;
     }
-    void impulseAndFriction(Vec2f collision, Vec2f norm, Vec2f movement, float factor, Shape otherShape) {
-      // TODO PETER optimise, no new Vec2f
-      Vec2f localPreCollision = getVerlet().getLocalVector(collision, new Vec2f());
-      dbgShape(Color.red, this, 1, "");
-      impulse(collision, movement, factor);
-      dbgShape(Color.cyan, this, 1, "");
-      // this vector shows actual translation of collision point after the impulse, ideally it is arg movement
-      Vec2f collisionOld = verlet.getPreviousWorldVector(localPreCollision, new Vec2f());
-      Vec2f collisionNew = verlet.getWorldVector(localPreCollision, new Vec2f());
-      Vec2f collisionDelta = collisionNew.cpy().sub(collisionOld); // this is the velocity of the collision point
 
+    // TODO PETER not used, saved for reference
+    void friction(Vec2f localCollision, Vec2f otherLocalCollision, Vec2f norm, Vec2f movement, float factor, Shape otherShape) {
+      // TODO PETER optimise, no new Vec2f
+      // this vector shows actual translation of collision point after the impulse, ideally it is arg movement
+      Vec2f collisionOld = verlet.getPreviousWorldVector(localCollision, new Vec2f());
+      Vec2f collisionNew = verlet.getWorldVector(localCollision, new Vec2f());
+      Vec2f collisionDelta = collisionNew.cpy().sub(collisionOld); // this is the velocity of the collision point
       Vec2f v = collisionDelta;
+      v.add(verlet.getVX(), verlet.getVY());
+      v.mul(0.5f);
+
       float dotv = norm.dot(v);
       Vec2f tv = v.sub(norm.x*dotv, norm.y*dotv, new Vec2f()); // tangent composant of velocity
-      Vec2f ov = new Vec2f(otherShape.verlet.getVX(), otherShape.verlet.getVY());
+
+      Vec2f ocollisionOld = otherShape.verlet.getPreviousWorldVector(otherLocalCollision, new Vec2f());
+      Vec2f ocollisionNew = otherShape.verlet.getWorldVector(otherLocalCollision, new Vec2f());
+      Vec2f ocollisionDelta = ocollisionNew.cpy().sub(ocollisionOld); // this is the velocity of the collision point
+      Vec2f ov = ocollisionDelta;
+      ov.add(otherShape.verlet.getVX(), otherShape.verlet.getVY());
+      ov.mul(0.5f);
+
       float dotov = norm.dot(ov);
       Vec2f otv = ov.sub(norm.x*dotov, norm.y*dotov, new Vec2f()); // tangent composant of other velocity
+
       Vec2f dv = otv.sub(tv, new Vec2f());
-      Vec2f c = getCenter(new Vec2f());
-      // dbgLine(Color.magenta, collision, collisionNew, 1, "");
-      // dbgLine(Color.pink, collisionOld, collisionNew, 1, "");
-      // dbgLine(Color.gray, collision, collision.cpy().add(movement), 1, "");
-      // dbgMark(Color.red, collision, 1, "");
-      // dbgMark(Color.orange, collisionOld, 1, "");
-      // dbgMark(Color.cyan, collisionNew, 1, "");
-      dbgLine(Color.white, c, c.cpy().add(norm.cpy().mul(10f)), 10, "");
-      dbgLine(Color.magenta, collisionNew, collisionNew.cpy().add(dv.cpy().mul(1f)), 10, "");
-      dbgLine(Color.blue, collisionNew, collisionNew.cpy().add(tv.cpy().mul(1f)), 10, "");
-      dbgLine(Color.darkGray, collisionNew, collisionNew.cpy().add(v.cpy().mul(1f)), 10, "");
-      dv.mul(factor);
-      impulse(collision, dv, 0.25f);
-      
-
-
-      // TODO PETER TESTING FRICTION
-      // on collision, otherShape's velocity is transfered to shape along tangent sort of.
-      // Resulting velocity along tangent must be between |Vshape| and |Vshape - VotherShape|, 
-      // i.e. friction must only slow things down, never accelerate.
-      // Transfer velocity according to penetration depth.
-      // Velocity transfer by impulse at collision point.
-
-      // dbgShape(Color.blue, this, 1, "");
-      // dbgShape(Color.gray, otherShape, 1, "");
-      // dbgLine(Color.magenta, collision, collision.cpy().add(movement), 1, "");
-      // dbgLine(Color.orange, collision, collision.cpy().add(worldPostCollision), 1, "");
-      // dbgLine(Color.white, collision, collision.cpy().add(norm.cpy().mul(50f)), 1, "");
-      // dbgLine(Color.green, collision, collision.cpy().add(verlet.x - verlet.ox, verlet.y - verlet.oy), 1, "");
-      // dbgMark(Color.red, collision, 1, "");
-
-
-      // Vec2f d = new Vec2f(worldPostCollision.x, worldPostCollision.y);
-      // float ndotf = norm.dot(d);
-      // Vec2f fric = d.cpy().sub(norm.x*ndotf, norm.y*ndotf);
-      // fric.mul(-.5f);
-      // impulse(collision, fric, 1f);
-      //dbgLine(Color.red, collision, collision.cpy().add(fric.cpy().mul(50f)), 1, "");
-      // Vec2f dm = new Vec2f(verlet.x - verlet.ox, verlet.y - verlet.oy);
-      // float ndotm = norm.dot(dm);
-      // Vec2f fricm = dm.cpy().sub(norm.x*ndotm, norm.y*ndotm);
-      // fricm.mul(-.25f);
-      //getVerlet().force(fricm.x, fricm.y);
-      ////impulse(collision, fricm, 1f);
+      //dbgLine(Color.white, ocollisionNew, ocollisionNew.cpy().add(dv.cpy().mul(50f)), 10, "");
+      impulse(collisionNew, dv, 0.99f);
     }
   } // class Shape
   class CompoundShape extends Shape {
@@ -2109,8 +2102,8 @@ class Collider {
     ProceduralNemesis n = new ProceduralNemesis();
     JFrame f = new JFrame();
     f.getContentPane().add(n);
-    f.setSize(800, 600);
-    f.setLocation(2400,0);
+    f.setSize(600, 400);
+    f.setLocation(0,800);
     f.setVisible(true);
     f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
     n.start();
